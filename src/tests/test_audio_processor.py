@@ -13,7 +13,11 @@ from app.models import (
     Post,
     TranscriptSegment,
 )
-from podcast_processor.audio_processor import AudioProcessor
+from podcast_processor.audio_processor import (
+    AudioProcessor,
+    RefinedBoundary,
+    TimeWindow,
+)
 from shared.config import Config
 from shared.test_utils import create_standard_test_config
 
@@ -720,3 +724,110 @@ def test_get_ad_segments_ignores_malformed_refinement_data(app: Flask) -> None:
         )
 
         assert processor.get_ad_segments(post) == [(15.1, 65.4)]
+
+
+def test_get_ad_segments_unions_multiple_refined_windows_in_one_block(
+    app: Flask,
+) -> None:
+    """Regression test: several refined ad windows inside a single atomic
+    transcript block must all be honored (union), not just the best-overlap one.
+
+    Reproduces the Odd Lots episode "How LA Is Quietly Becoming America's New
+    Industrial Tech Hub": the atomic block 1620.2-1781.2 contained three refined
+    windows, but only 1694.0-1775.0 was cut, leaving ~74s of ad audio behind.
+    """
+    with app.app_context():
+        processor = _processor_with_refinement()
+        post = _create_post_with_ad_segments(
+            guid="union-refined-block",
+            segment_windows=[(1620.2, 1650.0), (1652.0, 1709.0), (1710.0, 1781.2)],
+            refined_ad_boundaries=[
+                {
+                    "orig_start": 1620.2,
+                    "orig_end": 1650.0,
+                    "refined_start": 1620.2,
+                    "refined_end": 1650.2,
+                },
+                {
+                    "orig_start": 1652.0,
+                    "orig_end": 1709.0,
+                    "refined_start": 1654.6,
+                    "refined_end": 1709.6,
+                },
+                {
+                    "orig_start": 1710.0,
+                    "orig_end": 1781.2,
+                    "refined_start": 1694.0,
+                    "refined_end": 1775.0,
+                },
+            ],
+        )
+
+        assert processor.get_ad_segments(post) == [(1620.2, 1775.0)]
+
+
+def test_project_atomic_block_unions_overlapping_refined_windows() -> None:
+    block = TimeWindow(start=1620.2, end=1781.2)
+    refined = [
+        RefinedBoundary(
+            orig_start=1620.2,
+            orig_end=1650.0,
+            refined_start=1620.2,
+            refined_end=1650.2,
+        ),
+        RefinedBoundary(
+            orig_start=1652.0,
+            orig_end=1709.0,
+            refined_start=1654.6,
+            refined_end=1709.6,
+        ),
+        RefinedBoundary(
+            orig_start=1710.0,
+            orig_end=1781.2,
+            refined_start=1694.0,
+            refined_end=1775.0,
+        ),
+    ]
+
+    projected = AudioProcessor._project_atomic_block(block, refined)
+
+    assert (projected.start, projected.end) == (1620.2, 1775.0)
+
+
+def test_project_atomic_block_ignores_non_overlapping_refined_windows() -> None:
+    block = TimeWindow(start=100.0, end=200.0)
+    refined = [
+        RefinedBoundary(
+            orig_start=0.0, orig_end=10.0, refined_start=0.0, refined_end=10.0
+        ),
+        RefinedBoundary(
+            orig_start=120.0,
+            orig_end=180.0,
+            refined_start=121.5,
+            refined_end=179.0,
+        ),
+        RefinedBoundary(
+            orig_start=500.0,
+            orig_end=600.0,
+            refined_start=500.0,
+            refined_end=600.0,
+        ),
+    ]
+
+    projected = AudioProcessor._project_atomic_block(block, refined)
+
+    assert (projected.start, projected.end) == (121.5, 179.0)
+
+
+def test_project_atomic_block_without_match_returns_block() -> None:
+    block = TimeWindow(start=100.0, end=200.0)
+    refined = [
+        RefinedBoundary(
+            orig_start=500.0,
+            orig_end=600.0,
+            refined_start=500.0,
+            refined_end=600.0,
+        ),
+    ]
+
+    assert AudioProcessor._project_atomic_block(block, refined) == block

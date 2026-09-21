@@ -325,37 +325,49 @@ class AudioProcessor:
         blocks.append(TimeWindow(start=current_start, end=current_end))
         return blocks
 
+    @staticmethod
     def _project_atomic_block(
-        self,
         block: TimeWindow,
         refined_boundaries: list[RefinedBoundary],
     ) -> TimeWindow:
-        matched = self._best_refined_boundary_match(block, refined_boundaries)
-        if matched is None:
+        matched = AudioProcessor._refined_boundaries_matching_block(
+            block, refined_boundaries
+        )
+        if not matched:
             return block
-        return TimeWindow(start=matched.refined_start, end=matched.refined_end)
+        # Union every refined window overlapping this block. Keeping only the
+        # single best-overlap match used to silently drop correctly refined
+        # ad windows that shared one atomic transcript block, leaving ad
+        # audio uncut.
+        return TimeWindow(
+            start=min(refined.refined_start for refined in matched),
+            end=max(refined.refined_end for refined in matched),
+        )
 
     @staticmethod
-    def _best_refined_boundary_match(
+    def _refined_boundary_overlap(
+        block: TimeWindow,
+        refined: RefinedBoundary,
+    ) -> float:
+        return min(
+            block.end + REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
+            refined.orig_end + REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
+        ) - max(
+            block.start - REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
+            refined.orig_start - REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
+        )
+
+    @classmethod
+    def _refined_boundaries_matching_block(
+        cls,
         block: TimeWindow,
         refined_boundaries: list[RefinedBoundary],
-    ) -> RefinedBoundary | None:
-        best_match: RefinedBoundary | None = None
-        best_overlap = 0.0
-
-        for refined in refined_boundaries:
-            overlap = min(
-                block.end + REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
-                refined.orig_end + REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
-            ) - max(
-                block.start - REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
-                refined.orig_start - REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS,
-            )
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_match = refined
-
-        return best_match if best_overlap > 0.0 else None
+    ) -> list[RefinedBoundary]:
+        return [
+            refined
+            for refined in refined_boundaries
+            if cls._refined_boundary_overlap(block, refined) > 0.0
+        ]
 
     def _safe_get_post_row(self, post: Post) -> Post | None:
         try:
