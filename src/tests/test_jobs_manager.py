@@ -130,6 +130,66 @@ def test_ensure_jobs_creates_job_when_processed_path_is_missing_file(
     assert created_guids == [post.guid]
 
 
+def test_ensure_jobs_repair_is_bounded_per_cycle(app, monkeypatch) -> None:
+    """The repair path creates at most _REPAIR_JOB_CAP_PER_CYCLE jobs per call.
+
+    Regression test for the 2026-09-23 incident where a mass-whitelist of
+    1,277 posts produced 1,273 jobs in ~3 minutes.
+    """
+    feed = _create_feed()
+    for index in range(8):
+        _create_post(
+            feed_id=feed.id,
+            guid=f"cap-guid-{index}",
+            download_url=f"https://example.com/cap-{index}.mp3",
+            whitelisted=True,
+            processed_audio_path=None,
+        )
+
+    created_guids: list[str] = []
+
+    class FakeSingleJobManager:
+        def __init__(self, post_guid: str, *_args, **_kwargs) -> None:
+            self.post_guid = post_guid
+
+        def ensure_job(self) -> None:
+            created_guids.append(self.post_guid)
+
+    monkeypatch.setattr(jobs_manager_module, "SingleJobManager", FakeSingleJobManager)
+
+    manager = JobsManager.__new__(JobsManager)
+    manager._status_manager = object()
+    created = manager._ensure_jobs_for_all_posts("run-id")
+
+    assert created == JobsManager._REPAIR_JOB_CAP_PER_CYCLE == 5
+    assert len(created_guids) == 5
+    # Newest posts are repaired first.
+    assert created_guids[0] == "cap-guid-7"
+    assert created_guids[-1] == "cap-guid-3"
+
+
+def test_refresh_feed_in_short_context_starts_discovery_jobs(app, monkeypatch) -> None:
+    """Guids returned by refresh_feed get discovery-time processing starts."""
+    feed = _create_feed()
+
+    monkeypatch.setattr(jobs_manager_module, "_scheduler_app_context", app.app_context)
+    monkeypatch.setattr(
+        jobs_manager_module, "refresh_feed", lambda _feed: ["guid-a", "guid-b"]
+    )
+
+    started: list[tuple[str, str]] = []
+    manager = JobsManager.__new__(JobsManager)
+    monkeypatch.setattr(
+        manager,
+        "start_post_processing",
+        lambda guid, priority="interactive": started.append((guid, priority)),
+    )
+
+    manager._refresh_feed_in_short_context(feed.id)
+
+    assert started == [("guid-a", "background"), ("guid-b", "background")]
+
+
 def test_start_refresh_all_feeds_refreshes_each_feed_in_short_session(
     app, monkeypatch
 ) -> None:

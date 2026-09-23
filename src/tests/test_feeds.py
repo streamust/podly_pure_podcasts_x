@@ -343,6 +343,59 @@ def test_refresh_feed_unwhitelists_without_members(
     mock_writer_client.action.assert_called_once()
 
 
+@mock.patch("app.feeds._should_auto_whitelist_new_posts")
+@mock.patch("app.feeds.make_post")
+@mock.patch("app.feeds.fetch_feed")
+def test_refresh_feed_returns_newly_whitelisted_guids(
+    mock_fetch_feed,
+    mock_make_post,
+    mock_should_auto_whitelist,
+    mock_feed,
+    mock_feed_data,
+    mock_db_session,
+):
+    """refresh_feed returns guids only for new posts whitelisted by the refresh."""
+    mock_fetch_feed.return_value = mock_feed_data
+    mock_should_auto_whitelist.side_effect = [True, False]
+    mock_make_post.side_effect = [
+        MockPost(guid="guid-one"),
+        MockPost(guid="guid-two"),
+    ]
+
+    with mock.patch("app.feeds.writer_client") as mock_writer_client:
+        mock_writer_client.action.return_value = mock.MagicMock(success=True)
+        guids = refresh_feed(mock_feed)
+
+    assert guids == ["guid-one"]
+    mock_writer_client.action.assert_called_once()
+
+
+@mock.patch("app.feeds._should_auto_whitelist_new_posts")
+@mock.patch("app.feeds.make_post")
+@mock.patch("app.feeds.fetch_feed")
+def test_refresh_feed_returns_no_guids_when_writer_fails(
+    mock_fetch_feed,
+    mock_make_post,
+    mock_should_auto_whitelist,
+    mock_feed,
+    mock_feed_data,
+    mock_db_session,
+):
+    """Fail closed: no discovery guids when the writer did not persist."""
+    mock_fetch_feed.return_value = mock_feed_data
+    mock_should_auto_whitelist.return_value = True
+    mock_make_post.side_effect = [
+        MockPost(guid="guid-one"),
+        MockPost(guid="guid-two"),
+    ]
+
+    with mock.patch("app.feeds.writer_client") as mock_writer_client:
+        mock_writer_client.action.return_value = mock.MagicMock(success=False)
+        guids = refresh_feed(mock_feed)
+
+    assert guids == []
+
+
 @mock.patch("app.feeds.writer_client")
 @mock.patch("shared.processing_paths.get_instance_dir")
 @mock.patch("app.feeds.try_plan_feed_refresh")

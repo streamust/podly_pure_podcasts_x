@@ -791,7 +791,19 @@ def _refresh_feed_background(app: Flask, feed_id: int) -> None:
             return
 
         try:
-            refresh_feed(feed)
+            new_whitelisted_guids = refresh_feed(feed) or []
+            for guid in new_whitelisted_guids:
+                try:
+                    get_jobs_manager().start_post_processing(
+                        guid, priority="background"
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Failed to start discovery-time processing for post %s: %s",
+                        guid,
+                        exc,
+                        exc_info=True,
+                    )
             get_jobs_manager().enqueue_pending_jobs(
                 trigger="feed_refresh", context={"feed_id": feed_id}
             )

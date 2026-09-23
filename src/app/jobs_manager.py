@@ -315,8 +315,27 @@ class JobsManager:
             self._wake_worker()
         return response
 
+    # Bound on repair jobs created per cycle. 2026-09-23: the feed page's
+    # "Enable all episodes" toggle whitelisted all 1,277 Odd Lots posts and the
+    # unbounded repair below created 1,273 jobs in ~3 minutes. New episodes now
+    # get jobs at discovery time (see refresh_feed), so this path is only a
+    # safety net for posts orphaned without a job row (e.g. startup
+    # clear_active_jobs killed an in-flight episode). Five per cycle drains a
+    # handful of orphans quickly while a mass-whitelist can never again become
+    # a mass-queue.
+    _REPAIR_JOB_CAP_PER_CYCLE = 5
+
     def _ensure_jobs_for_all_posts(self, run_id: str | None) -> int:
-        """Ensure every post has an associated ProcessingJob record."""
+        """Repair whitelisted posts left without a job, bounded per cycle.
+
+        This is a repair path only: new episodes get jobs at discovery time
+        via :func:`refresh_feed`, so this exists to recover whitelisted posts
+        orphaned without a job row (e.g. startup ``clear_active_jobs``
+        deleted a pending job for an in-flight episode). Creates at most
+        ``_REPAIR_JOB_CAP_PER_CYCLE`` jobs per call so a mass-whitelist can
+        never again turn into a mass-queue; leftovers are repaired in later
+        cycles, newest first.
+        """
         posts_without_jobs = (
             Post.query.outerjoin(ProcessingJob, ProcessingJob.post_guid == Post.guid)
             .options(
@@ -331,11 +350,21 @@ class JobsManager:
                 joinedload(Post.feed).load_only(Feed.title),
             )
             .filter(ProcessingJob.id.is_(None), Post.whitelisted.is_(True))
+            .order_by(Post.id.desc())
             .all()
         )
 
         created = 0
-        for post in posts_without_jobs:
+        for index, post in enumerate(posts_without_jobs):
+            if created >= self._REPAIR_JOB_CAP_PER_CYCLE:
+                logger.warning(
+                    "Bounded job repair hit its cap of %d; %d whitelisted "
+                    "posts still have no job and will be repaired in later "
+                    "cycles",
+                    self._REPAIR_JOB_CAP_PER_CYCLE,
+                    len(posts_without_jobs) - index,
+                )
+                break
             # Avoid recreating jobs for posts that already have processed audio.
             existing_processed_path = find_existing_processed_audio_path(
                 processed_audio_path=post.processed_audio_path,
@@ -754,7 +783,13 @@ class JobsManager:
 
     # ------------------------ Helpers ------------------------
     def _refresh_feed_in_short_context(self, feed_id: int) -> None:
-        """Refresh one feed without keeping the whole scheduled batch in memory."""
+        """Refresh one feed without keeping the whole scheduled batch in memory.
+
+        Newly discovered whitelisted posts get a processing job at discovery
+        time (via :meth:`start_post_processing`, which is idempotent when an
+        active job already exists) instead of waiting for a later sweep.
+        """
+        new_whitelisted_guids: list[str] = []
         with _scheduler_app_context():
             try:
                 feed = _db.session.get(Feed, feed_id)
@@ -763,7 +798,7 @@ class JobsManager:
                         "Skipping missing feed during refresh: id=%s", feed_id
                     )
                     return
-                refresh_feed(feed)
+                new_whitelisted_guids = refresh_feed(feed) or []
             finally:
                 try:
                     _db.session.expunge_all()
@@ -785,6 +820,17 @@ class JobsManager:
                     )
                 # refresh_feed requests one trim at app-context teardown, once
                 # both its payloads and this session have been released.
+
+        for guid in new_whitelisted_guids:
+            try:
+                self.start_post_processing(guid, priority="background")
+            except Exception as exc:
+                logger.error(
+                    "Failed to start discovery-time processing for post %s: %s",
+                    guid,
+                    exc,
+                    exc_info=True,
+                )
 
     def _cleanup_inconsistent_posts(self) -> None:
         """Clean up posts with missing audio files."""

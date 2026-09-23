@@ -519,7 +519,16 @@ def _existing_post_refresh_payload(
     return post_update if len(post_update) > 1 else {}
 
 
-def refresh_feed(feed: Feed) -> None:
+def refresh_feed(feed: Feed) -> list[str]:
+    """Refresh a feed and return guids of newly discovered whitelisted posts.
+
+    The returned guids are for genuinely new posts whose refresh payload has
+    ``whitelisted=True`` (back-catalog/archive posts are never whitelisted).
+    Callers use them to create processing jobs at discovery time instead of
+    relying on a later unbounded sweep. Returns an empty list when nothing
+    new was whitelisted or when the writer action did not confirm
+    persistence (fail closed: no job without a stored post).
+    """
     from shared.rust_sidecar import rust_feed_refresh_enabled
 
     logger.info(f"Refreshing feed with ID: {feed.id}")
@@ -572,7 +581,7 @@ def refresh_feed(feed: Feed) -> None:
                 feed, feed_data
             )
         if updates or new_posts or existing_post_updates:
-            writer_client.action(
+            write_result = writer_client.action(
                 "refresh_feed",
                 {
                     "feed_id": feed_id,
@@ -582,9 +591,31 @@ def refresh_feed(feed: Feed) -> None:
                 },
                 wait=True,
             )
+            write_succeeded = bool(write_result and write_result.success)
+            if not write_succeeded:
+                logger.error(
+                    "refresh_feed writer action failed for feed_id=%s; "
+                    "no discovery guids will be returned",
+                    feed_id,
+                )
             # Refreshes are written through the separate writer service, so expire the
             # current request session before serializing the feed response.
             db.session.expire_all()
+        else:
+            write_succeeded = False
+
+        # Guids of genuinely new posts whitelisted by this refresh. Callers
+        # create processing jobs from these at discovery time. Empty when the
+        # writer did not confirm persistence (fail closed).
+        new_whitelisted_guids: list[str] = (
+            [
+                str(payload["guid"])
+                for payload in new_posts
+                if payload.get("whitelisted") and payload.get("guid")
+            ]
+            if write_succeeded
+            else []
+        )
     finally:
         # The plan owns the same lists as the aliases above. Drop it too before
         # the single teardown trim, after the DB session releases its objects.
@@ -592,6 +623,7 @@ def refresh_feed(feed: Feed) -> None:
         request_memory_trim_after_context(f"feed refresh feed_id={feed_id}")
 
     logger.info(f"Feed with ID: {feed_id} refreshed")
+    return new_whitelisted_guids
 
 
 def _try_build_rust_refresh_feed_payload(
@@ -645,6 +677,9 @@ def add_or_refresh_feed(url: str) -> Feed:
 
     feed = Feed.query.filter_by(rss_url=url).first()
     if feed:
+        # Discovery-time job creation intentionally ignored here: adding a
+        # feed can whitelist several recent archive episodes at once and those
+        # are picked up gradually by the bounded repair instead.
         refresh_feed(feed)
     else:
         feed = add_feed(feed_data)
