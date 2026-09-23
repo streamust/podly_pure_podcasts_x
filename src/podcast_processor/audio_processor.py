@@ -17,6 +17,13 @@ from shared.config import Config
 
 ATOMIC_AD_BLOCK_GAP_SECONDS = 10.0
 REFINED_BOUNDARY_MATCH_TOLERANCE_SECONDS = 0.75
+# An atomic ad block that matched no refined boundary is dropped from the cut
+# window only when it sits farther than this from the refined ad. Closer than
+# this, it is preserved: the refiner may have missed the true ad edge by a
+# few segments, and cutting a little extra stays fail-safe toward ad removal.
+# 30s mirrors the live min_ad_segment_separation_seconds -- the system's own
+# definition of "too far apart to be one ad break".
+UNMATCHED_BLOCK_MAX_GAP_SECONDS = 30.0
 EPISODE_EDGE_FRAGMENT_WINDOW_SECONDS = 30.0
 SHORT_EDGE_FRAGMENT_MERGE_GAP_SECONDS = 20.0
 MIN_NEIGHBOR_AD_DURATION_FOR_EDGE_MERGE_SECONDS = 15.0
@@ -293,6 +300,32 @@ class AudioProcessor:
             self._project_atomic_block(block, refined_boundaries)
             for block in atomic_blocks
         ]
+        if refined_boundaries:
+            refined_start = min(r.refined_start for r in refined_boundaries)
+            refined_end = max(r.refined_end for r in refined_boundaries)
+            kept_blocks = []
+            for projected, block in zip(projected_blocks, atomic_blocks):
+                if self._refined_boundaries_matching_block(block, refined_boundaries):
+                    kept_blocks.append(projected)
+                    continue
+                # Unmatched block: the refiner deliberately ignored this coarse
+                # transcript position (often a classifier false positive).
+                # Preserve it only if it sits close to the refined ad -- the
+                # refiner may have missed the true edge by a few segments.
+                # Farther than UNMATCHED_BLOCK_MAX_GAP_SECONDS away, it is not
+                # part of this ad break: drop it so it cannot drag the cut
+                # window via min()/max() and delete real episode content.
+                gap = (
+                    refined_start - block.end
+                    if block.end < refined_start
+                    else block.start - refined_end
+                    if block.start > refined_end
+                    else 0.0
+                )
+                if gap <= UNMATCHED_BLOCK_MAX_GAP_SECONDS:
+                    kept_blocks.append(projected)
+            if kept_blocks:
+                projected_blocks = kept_blocks
         return (
             min(block.start for block in projected_blocks),
             max(block.end for block in projected_blocks),
