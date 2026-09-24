@@ -153,7 +153,13 @@ class AdClassifier:
                 self.boundary_refiner = WordBoundaryRefiner(config, self.logger)
                 self.logger.info("Word-level boundary refiner enabled")
             else:
-                self.boundary_refiner = BoundaryRefiner(config, self.logger)
+                # Share the classifier's token bucket with the refiner: both
+                # draw on the same provider per-minute token budget, so the
+                # refiner must pace itself instead of firing unpaced right
+                # after classification filled the window (was causing 429s).
+                self.boundary_refiner = BoundaryRefiner(
+                    config, self.logger, token_limiter=self.rate_limiter
+                )
                 self.logger.info("Boundary refinement enabled")
         else:
             self.logger.info("Boundary refinement disabled via config")
