@@ -177,7 +177,9 @@ class TranscriptionManager:
             )
 
     def _transcriber_supports_word_timestamps(self) -> bool:
-        return isinstance(self.transcriber, OpenAIWhisperTranscriber)
+        return isinstance(
+            self.transcriber, (OpenAIWhisperTranscriber, GroqWhisperTranscriber)
+        )
 
     def _persist_transcription_chunks(
         self,
@@ -299,7 +301,7 @@ class TranscriptionManager:
     ) -> list[TranscriptSegment]:
         db_segments, _ = self.transcribe_for_processing(
             post,
-            include_word_timestamps=False,
+            include_word_timestamps=True,
             progress_callback=progress_callback,
         )
         return db_segments
