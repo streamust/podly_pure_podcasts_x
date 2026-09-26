@@ -449,6 +449,7 @@ class GroqTranscriptionSegment(BaseModel):
     start: float
     end: float
     text: str
+    words: list[WordTimestamp] | None = None
 
 
 class GroqWhisperTranscriber(Transcriber):
@@ -471,7 +472,6 @@ class GroqWhisperTranscriber(Transcriber):
         include_word_timestamps: bool = False,
         progress_callback: ChunkProgressCallback | None = None,
     ) -> list[Segment]:
-        del include_word_timestamps
         self.logger.info(
             "[WHISPER_GROQ] Starting Groq whisper transcription for: %s",
             audio_file_path,
@@ -495,7 +495,9 @@ class GroqWhisperTranscriber(Transcriber):
                 total_chunks,
                 chunk_path,
             )
-            segments = self.get_segments_for_chunk(str(chunk_path))
+            segments = self.get_segments_for_chunk(
+                str(chunk_path), include_word_timestamps=include_word_timestamps
+            )
             self.logger.info(
                 "[WHISPER_GROQ] Chunk %d/%d complete: %d segments",
                 idx + 1,
@@ -525,6 +527,7 @@ class GroqWhisperTranscriber(Transcriber):
                 start=seg.start,
                 end=seg.end,
                 text=seg.text,
+                words=seg.words,
             )
             for seg in segments
         ]
@@ -537,10 +540,19 @@ class GroqWhisperTranscriber(Transcriber):
         for segment in segments:
             segment.start += offset_sec
             segment.end += offset_sec
+            # Word timestamps are chunk-relative in the API response, just
+            # like segment times — shift them by the same offset.
+            for word in segment.words or []:
+                if word.start is not None:
+                    word.start += offset_sec
+                if word.end is not None:
+                    word.end += offset_sec
 
         return segments
 
-    def get_segments_for_chunk(self, chunk_path: str) -> list[GroqTranscriptionSegment]:
+    def get_segments_for_chunk(
+        self, chunk_path: str, *, include_word_timestamps: bool = False
+    ) -> list[GroqTranscriptionSegment]:
         retries = self.config.max_retries if self.config.max_retries is not None else 0
         max_attempts = retries + 1
         for attempt in range(1, max_attempts + 1):
@@ -551,12 +563,15 @@ class GroqWhisperTranscriber(Transcriber):
                 max_attempts,
             )
             try:
-                transcription = self.client.audio.transcriptions.create(
-                    file=Path(chunk_path),
-                    model=self.config.model,
-                    response_format="verbose_json",  # Ensure segments are included
-                    language=self.config.language,
-                )
+                create_kwargs: dict[str, Any] = {
+                    "file": Path(chunk_path),
+                    "model": self.config.model,
+                    "response_format": "verbose_json",  # Ensure segments are included
+                    "language": self.config.language,
+                }
+                if include_word_timestamps:
+                    create_kwargs["timestamp_granularities"] = ["segment", "word"]
+                transcription = self.client.audio.transcriptions.create(**create_kwargs)
             except Exception as exc:
                 self.logger.warning(
                     "[GROQ_API_CALL] Attempt %d/%d failed for %s: %s",
@@ -587,12 +602,26 @@ class GroqWhisperTranscriber(Transcriber):
                 )
                 return []
 
-            groq_segments = [
-                GroqTranscriptionSegment(
-                    start=seg["start"], end=seg["end"], text=seg["text"]
+            groq_segments = []
+            for seg in transcription_segments:
+                # Reuse the OpenAI transcriber's defensive word parser: the
+                # verbose_json word entries have the same shape.
+                parsed_words = [
+                    parsed_word
+                    for parsed_word in (
+                        OpenAIWhisperTranscriber._parse_word(word)
+                        for word in seg.get("words", []) or []
+                    )
+                    if parsed_word is not None
+                ]
+                groq_segments.append(
+                    GroqTranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=parsed_words or None,
+                    )
                 )
-                for seg in transcription_segments
-            ]
 
             self.logger.info(
                 "[GROQ_API_CALL] Got %d segments from chunk (attempt %d/%d)",

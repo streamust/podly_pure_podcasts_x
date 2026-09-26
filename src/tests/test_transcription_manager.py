@@ -605,3 +605,31 @@ def test_transcribe_for_processing_falls_back_when_existing_transcript_has_no_sa
 
         assert len(db_segments) == 1
         assert rich_segments is None
+
+
+def test_supports_word_timestamps_for_groq_transcriber(
+    test_config: Config,
+    test_logger: logging.Logger,
+    mock_db_session: MagicMock,
+    app: Flask,
+    mocker: Any,
+) -> None:
+    """GroqWhisperTranscriber must be recognized as word-timestamp capable."""
+    from podcast_processor.transcribe import GroqWhisperTranscriber
+    from shared.config import GroqWhisperConfig
+
+    mocker.patch("podcast_processor.transcribe.Groq", return_value=MagicMock())
+    with app.app_context():
+        groq_transcriber = GroqWhisperTranscriber(
+            test_logger,
+            GroqWhisperConfig(api_key="test", model="whisper-large-v3-turbo"),
+        )
+        manager = TranscriptionManager(
+            test_logger,
+            test_config,
+            model_call_query=MagicMock(),
+            segment_query=MagicMock(),
+            db_session=mock_db_session,
+            transcriber=groq_transcriber,
+        )
+        assert manager._transcriber_supports_word_timestamps() is True

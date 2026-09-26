@@ -393,3 +393,101 @@ def test_merge_segments_with_saved_word_timestamps_rebuilds_rich_segments() -> N
     assert merged[0].speaker_label == "SPEAKER_00"
     assert [word.word for word in (merged[0].words or [])] == ["Hello", "world"]
     assert merged[1].words is None
+
+
+def _make_groq_transcriber(mocker: Any, response_segments: list) -> Any:
+    from podcast_processor.transcribe import GroqWhisperTranscriber
+    from shared.config import GroqWhisperConfig
+
+    mock_client = MagicMock()
+    mock_client.audio.transcriptions.create.return_value = SimpleNamespace(
+        segments=response_segments
+    )
+    mocker.patch("podcast_processor.transcribe.Groq", return_value=mock_client)
+    logger = logging.getLogger("global_logger")
+    config = GroqWhisperConfig(
+        api_key="test",
+        model="whisper-large-v3-turbo",
+    )
+    transcriber = GroqWhisperTranscriber(logger, config)
+    return transcriber, mock_client
+
+
+def test_groq_get_segments_for_chunk_requests_word_granularities(mocker: Any) -> None:
+    transcriber, mock_client = _make_groq_transcriber(
+        mocker, [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    )
+
+    transcriber.get_segments_for_chunk("chunk.mp3", include_word_timestamps=True)
+
+    _, kwargs = mock_client.audio.transcriptions.create.call_args
+    assert kwargs["timestamp_granularities"] == ["segment", "word"]
+
+
+def test_groq_get_segments_for_chunk_omits_word_granularities_by_default(
+    mocker: Any,
+) -> None:
+    transcriber, mock_client = _make_groq_transcriber(
+        mocker, [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    )
+
+    transcriber.get_segments_for_chunk("chunk.mp3")
+
+    _, kwargs = mock_client.audio.transcriptions.create.call_args
+    assert "timestamp_granularities" not in kwargs
+
+
+def test_groq_word_timestamps_parsed_and_carried_through(mocker: Any) -> None:
+    from podcast_processor.transcribe import GroqWhisperTranscriber
+
+    transcriber, _ = _make_groq_transcriber(
+        mocker,
+        [
+            {
+                "start": 10.0,
+                "end": 12.0,
+                "text": "hello world",
+                "words": [
+                    {"word": "hello", "start": 10.1, "end": 10.5},
+                    {"word": "world", "start": 10.6, "end": 11.0},
+                ],
+            },
+            {"start": 12.0, "end": 13.0, "text": "no words here"},
+        ],
+    )
+
+    segments = transcriber.get_segments_for_chunk(
+        "chunk.mp3", include_word_timestamps=True
+    )
+    assert len(segments) == 2
+    assert segments[0].words is not None
+    assert [w.word for w in segments[0].words] == ["hello", "world"]
+    assert segments[1].words is None
+
+    converted = GroqWhisperTranscriber.convert_segments(segments)
+    assert converted[0].words is not None
+    assert [w.word for w in converted[0].words] == ["hello", "world"]
+
+
+def test_groq_add_offset_to_segments_shifts_word_timestamps() -> None:
+    from podcast_processor.transcribe import (
+        GroqTranscriptionSegment,
+        GroqWhisperTranscriber,
+        WordTimestamp,
+    )
+
+    segments = [
+        GroqTranscriptionSegment(
+            start=1.0,
+            end=2.0,
+            text="hi",
+            words=[WordTimestamp(word="hi", start=1.1, end=1.5)],
+        )
+    ]
+
+    shifted = GroqWhisperTranscriber.add_offset_to_segments(segments, 60_000)
+
+    assert shifted[0].start == pytest.approx(61.0)
+    assert shifted[0].words is not None
+    assert shifted[0].words[0].start == pytest.approx(61.1)
+    assert shifted[0].words[0].end == pytest.approx(61.5)
