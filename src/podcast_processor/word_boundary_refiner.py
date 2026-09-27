@@ -22,6 +22,7 @@ from podcast_processor.llm_model_call_utils import (
     render_prompt_and_upsert_model_call,
     try_update_model_call,
 )
+from podcast_processor.token_rate_limiter import TokenRateLimiter
 from shared.config import Config
 from shared.llm_utils import normalize_completion_args_for_model
 
@@ -46,9 +47,15 @@ class WordBoundaryRefiner:
     heuristics.
     """
 
-    def __init__(self, config: Config, logger: logging.Logger | None = None):
+    def __init__(
+        self,
+        config: Config,
+        logger: logging.Logger | None = None,
+        token_limiter: TokenRateLimiter | None = None,
+    ):
         self.config = config
         self.logger = logger or logging.getLogger(__name__)
+        self.token_limiter = token_limiter
         self.template = self._load_template()
 
     def _load_template(self) -> Template:
@@ -123,6 +130,17 @@ Return only one JSON object (no markdown/code fences, no analysis text) with:
                 logger=self.logger,
                 log_prefix="Word boundary refine",
             )
+            # Pace this call through the shared token bucket. The refiner's
+            # calls draw on the same provider per-minute token budget as the
+            # ad classifier's, but would otherwise fire unpaced right after
+            # classification had just filled that window — the provider's TPM
+            # limit (input+output tokens combined) then 429s these calls and
+            # they fail permanently. Waiting here trades a short delay for a
+            # call that actually goes through.
+            if self.token_limiter is not None:
+                self.token_limiter.wait_if_needed(
+                    completion_args["messages"], self.config.llm_model
+                )
             response = call_litellm_with_tier_retry(
                 completion_args,
                 config=self.config,

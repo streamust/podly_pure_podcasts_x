@@ -150,7 +150,9 @@ class AdClassifier:
         self.boundary_refiner: BoundaryRefiner | WordBoundaryRefiner | None = None
         if config.enable_boundary_refinement:
             if getattr(config, "enable_word_level_boundary_refinder", False):
-                self.boundary_refiner = WordBoundaryRefiner(config, self.logger)
+                self.boundary_refiner = WordBoundaryRefiner(
+                    config, self.logger, token_limiter=self.rate_limiter
+                )
                 self.logger.info("Word-level boundary refiner enabled")
             else:
                 # Share the classifier's token bucket with the refiner: both
