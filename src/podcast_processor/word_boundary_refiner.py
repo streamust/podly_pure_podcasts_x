@@ -5,8 +5,10 @@ Note: We intentionally share some call-setup patterns with BoundaryRefiner.
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,6 +31,18 @@ from shared.llm_utils import normalize_completion_args_for_model
 # Keep the same internal bounds as the existing BoundaryRefiner.
 MAX_START_EXTENSION_SECONDS = 30.0
 MAX_END_EXTENSION_SECONDS = 15.0
+
+# SHADOW-MODE shrink-cap experiment (2026-10-02; J-F approved 7-day trial).
+# Log-only while SHADOW_CAP_ENFORCE is False: when the LLM shrinks a detected
+# ad block by more than SHADOW_CAP_SECONDS on either side, record what the
+# clamp WOULD have done. The returned refinement is never modified in
+# shadow mode. Flip SHADOW_CAP_ENFORCE to True only after the trial review.
+SHADOW_CAP_SECONDS = 60.0
+SHADOW_CAP_LOG_PATH = os.environ.get(
+    "SHADOW_CAP_LOG_PATH",
+    "/home/hatch/workspace/goals/podly-podcast-hosting-setup/hidden_files/shadow_cap_log.jsonl",
+)
+SHADOW_CAP_ENFORCE = False
 
 
 @dataclass
@@ -326,6 +340,41 @@ Return only one JSON object (no markdown/code fences, no analysis text) with:
                 end_adjustment_reason=end_reason,
             )
 
+            # SHADOW-MODE shrink cap (trial): observe, log, and — only if
+            # SHADOW_CAP_ENFORCE is True — clamp. In shadow mode the result
+            # above is returned untouched.
+            shadow_record = self._shadow_cap_record(
+                ad_start=ad_start,
+                ad_end=ad_end,
+                refined_start=refined_start,
+                refined_end=refined_end,
+                post_id=post_id,
+                post_guid=post_guid,
+                start_reason=start_reason,
+                end_reason=end_reason,
+            )
+            if shadow_record is not None:
+                self._write_shadow_cap_log(shadow_record)
+                if SHADOW_CAP_ENFORCE:
+                    if shadow_record["start_shrink_s"] > SHADOW_CAP_SECONDS:
+                        result = WordBoundaryRefinement(
+                            refined_start=shadow_record["clamped_start"],
+                            refined_end=result.refined_end,
+                            start_adjustment_reason=(
+                                result.start_adjustment_reason + " [shrink-capped]"
+                            ).strip(),
+                            end_adjustment_reason=result.end_adjustment_reason,
+                        )
+                    if shadow_record["end_shrink_s"] > SHADOW_CAP_SECONDS:
+                        result = WordBoundaryRefinement(
+                            refined_start=result.refined_start,
+                            refined_end=shadow_record["clamped_end"],
+                            start_adjustment_reason=result.start_adjustment_reason,
+                            end_adjustment_reason=(
+                                result.end_adjustment_reason + " [shrink-capped]"
+                            ).strip(),
+                        )
+
             self._update_model_call(
                 model_call_id,
                 status="success",
@@ -353,6 +402,65 @@ Return only one JSON object (no markdown/code fences, no analysis text) with:
             start_adjustment_reason="heuristic_fallback",
             end_adjustment_reason="unchanged",
         )
+
+    @staticmethod
+    def _shadow_cap_record(
+        *,
+        ad_start: float,
+        ad_end: float,
+        refined_start: float,
+        refined_end: float,
+        post_id: int | None,
+        post_guid: str | None,
+        start_reason: str,
+        end_reason: str,
+    ) -> dict[str, Any] | None:
+        """Return a shadow-cap log record when the shrink exceeds the cap.
+
+        Pure function (no I/O, never modifies its inputs): decides whether
+        the SHADOW_CAP_SECONDS shrink cap WOULD have engaged and what the
+        clamped boundaries would have been.
+        """
+        start_shrink = float(refined_start) - float(ad_start)
+        end_shrink = float(ad_end) - float(refined_end)
+        if start_shrink <= SHADOW_CAP_SECONDS and end_shrink <= SHADOW_CAP_SECONDS:
+            return None
+        return {
+            "ts": datetime.now(UTC).isoformat(),
+            "event": "shadow_cap_would_clamp",
+            "cap_seconds": SHADOW_CAP_SECONDS,
+            "enforced": SHADOW_CAP_ENFORCE,
+            "post_id": post_id,
+            "post_guid": post_guid,
+            "ad_start": float(ad_start),
+            "ad_end": float(ad_end),
+            "refined_start": float(refined_start),
+            "refined_end": float(refined_end),
+            "start_shrink_s": round(start_shrink, 2),
+            "end_shrink_s": round(end_shrink, 2),
+            "clamped_start": (
+                float(ad_start) + SHADOW_CAP_SECONDS
+                if start_shrink > SHADOW_CAP_SECONDS
+                else float(refined_start)
+            ),
+            "clamped_end": (
+                float(ad_end) - SHADOW_CAP_SECONDS
+                if end_shrink > SHADOW_CAP_SECONDS
+                else float(refined_end)
+            ),
+            "start_reason": start_reason,
+            "end_reason": end_reason,
+        }
+
+    def _write_shadow_cap_log(self, record: dict[str, Any]) -> None:
+        """Append a shadow-cap record as JSONL. Never raises; never touches the DB."""
+        try:
+            path = Path(SHADOW_CAP_LOG_PATH)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
+        except Exception:  # noqa: BLE001
+            self.logger.warning("Shadow cap: failed to write log record", exc_info=True)
 
     def _constrain_start(self, estimated_start: float, orig_start: float) -> float:
         return max(estimated_start, orig_start - MAX_START_EXTENSION_SECONDS)
