@@ -1918,8 +1918,13 @@ class AdClassifier:
         ad_blocks = self._group_into_blocks(identifications)
 
         for block in ad_blocks:
-            # Skip low confidence or very short blocks
-            if block["confidence"] < 0.6 or (block["end"] - block["start"]) < 15.0:
+            # Skip low confidence or very short blocks. The confidence gate
+            # matches the cutter's output.min_confidence: don't refine what we
+            # don't cut. Refining below the cut threshold wastes LLM calls on
+            # blocks whose boundaries would be silently discarded downstream.
+            if block["confidence"] < float(
+                self.config.output.min_confidence
+            ) or (block["end"] - block["start"]) < 15.0:
                 continue
 
             # Refine
