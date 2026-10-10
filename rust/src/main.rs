@@ -1176,8 +1176,8 @@ fn wb_context_by_seq_window(
     }
     let min_seq = segments.iter().map(|s| s.sequence_num).min().unwrap();
     let max_seq = segments.iter().map(|s| s.sequence_num).max().unwrap();
-    let start_seq = min_seq.max(first_seq - 2);
-    let end_seq = max_seq.min(last_seq + 2);
+    let start_seq = min_seq.max(first_seq - 8);
+    let end_seq = max_seq.min(last_seq + 8);
     segments
         .iter()
         .filter(|s| s.sequence_num >= start_seq && s.sequence_num <= end_seq)
@@ -8781,8 +8781,8 @@ mod tests {
             .collect();
         let selected = select_wb_context_segments(&segments, 100.0, 110.0, Some(5), Some(6));
         let seq_nums: Vec<i64> = selected.iter().map(|s| s.sequence_num).collect();
-        // start_seq = max(0, 5-2)=3, end_seq = min(9, 6+2)=8 → [3..=8]
-        assert_eq!(seq_nums, vec![3, 4, 5, 6, 7, 8]);
+        // start_seq = max(0, 5-8)=0, end_seq = min(9, 6+8)=9 → [0..=9]
+        assert_eq!(seq_nums, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]

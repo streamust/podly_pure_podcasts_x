@@ -999,8 +999,8 @@ Return only one JSON object (no markdown/code fences, no analysis text) with:
 
         min_seq = min(seq_values)
         max_seq = max(seq_values)
-        start_seq = max(min_seq, int(first_seq_num) - 2)
-        end_seq = min(max_seq, int(last_seq_num) + 2)
+        start_seq = max(min_seq, int(first_seq_num) - 8)
+        end_seq = min(max_seq, int(last_seq_num) + 8)
 
         selected: list[dict[str, Any]] = []
         for segment in all_segments:

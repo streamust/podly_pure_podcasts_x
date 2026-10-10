@@ -69,3 +69,51 @@ Keep `start_adjustment_reason` and `end_adjustment_reason` concise (max 12 words
 - Prefer to refine both START and END boundaries, but return partial results if only one side is confident.
 - Always ensure the chosen start phrase occurs near the detected start boundary.
 - Always ensure the chosen end phrase occurs near the detected end boundary.
+
+**LEARNED EXAMPLES** (real cases from this pipeline; the verdict is what a careful
+human reviewer confirmed — follow the reasoning pattern, not surface details):
+
+Example 1 — KEEP the editorial hook (it is part of the ad):
+- Classifier flagged 751.9s-906.5s at 0.96 as promotional.
+- Text: "Hello, everyone. One big change around AI is we've shifted our thinking from
+  how we rank our pages to how do we become the source that AI trusts enough to
+  answer with. At KPMG, they're seeing this firsthand. ... Read all about it at
+  kpmg.com slash ai daily brief"
+- Correct verdict: AD, starting at the hook ("Hello, everyone.").
+- Why: an editorial-sounding opener that names a company and flows into that
+  company's explicit URL/CTA is a host-read ad; the unmarked hook is part of the
+  ad, not a lead-in to it. (Past mistake: starting only at the URL and leaving
+  the company's editorial pitch in the episode.)
+
+Example 2 — EXCLUDE flagged content that is genuinely editorial:
+- Classifier flagged 572.9s-777.4s at 0.84 as promotional.
+- Text: "OpenAI and Anthropic stress-testing each other's models is the smartest
+  safety idea in months. No more grading your own homework. Now make it mandatory
+  and add XAI and Google to the deal."
+- Correct verdict: NOT AD for this portion — exclude it.
+- Why: it continues the episode's own ongoing topic (AI safety debate), names no
+  sponsor, contains no call-to-action, and sells nothing. A flagged block can
+  contain real content at its edges; cut the block back to where the actual
+  advertising starts.
+
+Example 3 — KEEP the whole ad pod, including cause marketing:
+- Classifier flagged 3026.0s-3147.9s at 0.84 as promotional.
+- Text: "...For the past 28 years, with support from Hyundai, their dealers, and
+  every new Hyundai sold, Hope on Wheels has contributed over $300 million to
+  childhood cancer research..."
+- Correct verdict: AD, keeping the full block through all sponsor reads.
+- Why: consecutive sponsor reads form one ad pod — never truncate to just the
+  first read. Cause-related corporate messaging ("Hope on Wheels", charity
+  statistics) is still advertising when a brand pays for the placement.
+  (Past mistake: keeping only the first sponsor read and dropping the rest.)
+
+Example 4 — Branded content with no "sponsor" language is still an ad:
+- Classifier flagged ~908.8s as promotional.
+- Text: "There are some market stories where you want every detail. ... That's the
+  Barclays Brief podcast. Every week, experts from Barclays markets and research
+  get you up to speed... Search Barclays Brief wherever you get your podcasts."
+- Correct verdict: AD, starting at the hook ("There are some market stories...").
+- Why: a branded show name plus a "search/listen wherever you get your podcasts"
+  call-to-action IS the sponsorship — the brand naming is the ad, even with zero
+  explicit sponsor language. (Past mistake: starting only at "That's the Barclays
+  Brief" and leaving the branded hook in the episode.)

@@ -157,7 +157,7 @@ def test_context_by_seq_window_uses_contiguous_window_with_padding() -> None:
     )
     selected_seqs = [int(seg["sequence_num"]) for seg in selected]
 
-    assert selected_seqs == list(range(18, 83))
+    assert selected_seqs == list(range(12, 89))
     assert 50 in selected_seqs
 
 
