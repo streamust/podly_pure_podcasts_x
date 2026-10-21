@@ -11,6 +11,7 @@ from flask.typing import ResponseReturnValue
 
 from app.auth import AuthSettings
 from app.auth.middleware import init_auth_middleware
+from app.auth.rate_limiter import FailureRateLimiter, FailureState
 from app.auth.state import failure_rate_limiter
 from app.extensions import db
 from app.models import Feed, Post, User
@@ -317,3 +318,98 @@ def test_feeds_endpoint_includes_latest_episode_release_date(auth_app: Flask) ->
         == latest_release_date.isoformat()
     )
     assert feeds_by_id[undated_feed_id]["latest_episode_release_date"] is None
+
+
+def _share_token(auth_app: Flask) -> tuple[int, str, str]:
+    client = auth_app.test_client()
+    with auth_app.app_context():
+        feed = Feed(title="Example", rss_url="https://example.com/feed.xml")
+        db.session.add(feed)
+        db.session.commit()
+        db.session.add(
+            Post(
+                feed_id=feed.id,
+                guid="episode-1",
+                download_url="https://example.com/audio.mp3",
+                title="Episode",
+                whitelisted=True,
+            )
+        )
+        db.session.commit()
+        feed_id = feed.id
+    client.post("/api/auth/login", json={"username": "admin", "password": "password"})
+    payload = client.post(f"/api/feeds/{feed_id}/share-link").get_json()
+    return feed_id, payload["feed_token"], payload["feed_secret"]
+
+
+def test_stale_feed_urls_cannot_lock_out_a_valid_token(auth_app: Flask) -> None:
+    feed_id, token_id, secret = _share_token(auth_app)
+    anon = auth_app.test_client()
+
+    # A podcast app retrying old URLs: no token, and a stale token id.
+    for _ in range(8):
+        anon.get("/api/posts/deleted-episode/download")
+        anon.get(
+            "/api/posts/deleted-episode/download",
+            query_string={"feed_token": "stale", "feed_secret": "old"},
+        )
+    assert (
+        anon.get(
+            "/api/posts/deleted-episode/download",
+            query_string={"feed_token": "stale", "feed_secret": "old"},
+        ).status_code
+        == 429
+    )
+
+    response = anon.get(
+        f"/feed/{feed_id}",
+        query_string={"feed_token": token_id, "feed_secret": secret},
+    )
+    assert response.status_code == 200
+
+
+def test_repeated_wrong_secret_for_one_token_is_still_throttled(
+    auth_app: Flask,
+) -> None:
+    feed_id, token_id, _secret = _share_token(auth_app)
+    anon = auth_app.test_client()
+
+    statuses = [
+        anon.get(
+            f"/feed/{feed_id}",
+            query_string={"feed_token": token_id, "feed_secret": f"guess-{attempt}"},
+        ).status_code
+        for attempt in range(6)
+    ]
+    assert statuses[:3] == [401, 401, 401]
+    assert 429 in statuses
+
+
+def test_blocked_token_id_still_admits_its_owner(auth_app: Flask) -> None:
+    feed_id, token_id, secret = _share_token(auth_app)
+    attacker = auth_app.test_client()
+    for _ in range(6):
+        attacker.get(f"/feed/{feed_id}", query_string={"feed_token": token_id})
+    assert (
+        attacker.get(
+            f"/feed/{feed_id}", query_string={"feed_token": token_id}
+        ).status_code
+        == 429
+    )
+
+    owner = auth_app.test_client()
+    response = owner.get(
+        f"/feed/{feed_id}",
+        query_string={"feed_token": token_id, "feed_secret": secret},
+    )
+    assert response.status_code == 200
+
+
+def test_failure_limiter_storage_is_bounded() -> None:
+    storage: dict[str, FailureState] = {}
+    limiter = FailureRateLimiter(storage=storage, max_entries=50)
+    for attempt in range(500):
+        limiter.register_failure(f"feed_token:fresh-{attempt}")
+    assert len(storage) == 50
+    assert "feed_token:fresh-499" in storage
+    assert "feed_token:fresh-0" not in storage

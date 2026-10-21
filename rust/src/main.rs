@@ -4701,7 +4701,9 @@ fn resolve_original_duration_seconds(
         .reduce(f64::max)
         .unwrap_or(0.0);
     if post_duration.is_some() {
-        cut_duration + ad_time_seconds
+        // The transcript is of the unprocessed audio, so its end is a lower bound
+        // when current ad settings yield fewer windows than were cut.
+        (cut_duration + ad_time_seconds).max(transcript_duration)
     } else {
         transcript_duration.max(cut_duration)
     }
@@ -6105,22 +6107,22 @@ fn render_admin_costs(args: CostsRenderAdminArgs) -> Result<Value> {
         }
     }
 
-    // --- ad time per post (sum of (end-start) where label = 'ad') ---
-    let mut ad_time_by_post: HashMap<i64, f64> = HashMap::new();
+    // --- original length per post ---
+    // post.duration is the processed (ad-removed) length. The transcript is of
+    // the unprocessed audio, so its last segment end is a lower bound on the
+    // original length that does not depend on which ad labels were cut; it misses
+    // any untranscribed tail after the last segment.
+    let mut transcript_end_by_post: HashMap<i64, f64> = HashMap::new();
     if !post_ids.is_empty() {
         let placeholders: String = (0..post_ids.len())
             .map(|_| "?")
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!(
-            "SELECT transcript_segment.post_id, \
-                    SUM(transcript_segment.end_time - transcript_segment.start_time) \
+            "SELECT post_id, MAX(end_time) \
              FROM transcript_segment \
-             JOIN identification \
-               ON identification.transcript_segment_id = transcript_segment.id \
-             WHERE identification.label = 'ad' \
-               AND transcript_segment.post_id IN ({placeholders}) \
-             GROUP BY transcript_segment.post_id"
+             WHERE post_id IN ({placeholders}) \
+             GROUP BY post_id"
         );
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::ToSql> =
@@ -6129,8 +6131,8 @@ fn render_admin_costs(args: CostsRenderAdminArgs) -> Result<Value> {
             Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
         })?;
         for row in rows {
-            let (post_id, ad_time) = row?;
-            ad_time_by_post.insert(post_id, ad_time);
+            let (post_id, end_time) = row?;
+            transcript_end_by_post.insert(post_id, end_time);
         }
     }
 
@@ -6190,8 +6192,7 @@ fn render_admin_costs(args: CostsRenderAdminArgs) -> Result<Value> {
             Some(v) => *v,
             None => continue,
         };
-        let ad_time = *ad_time_by_post.get(&post_id).unwrap_or(&0.0);
-        let duration = cut_duration + ad_time;
+        let duration = cut_duration.max(*transcript_end_by_post.get(&post_id).unwrap_or(&0.0));
         let duration_hours = if duration > 0.0 {
             duration / 3600.0
         } else {
@@ -7142,7 +7143,7 @@ fn post_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PostRow> {
 
 fn build_rss_xml(args: RssBuildArgs<'_>) -> String {
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
-    xml.push_str("<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\">\n<channel>\n");
+    xml.push_str("<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">\n<channel>\n");
     push_text_element(&mut xml, "title", args.title);
     push_text_element(&mut xml, "link", args.link);
     push_text_element(
@@ -7207,6 +7208,21 @@ fn push_item(
         xml_escape(&audio_url),
         enclosure_len(post)
     ));
+    if !render_chapters(post.chapter_data.as_deref()).is_empty() {
+        let chapters_url = append_feed_token(
+            &format!(
+                "{}/post/{}/chapters.json",
+                base_url.trim_end_matches('/'),
+                urlencoding_simple(&post.guid)
+            ),
+            feed_token,
+            feed_secret,
+        );
+        xml.push_str(&format!(
+            "<podcast:chapters url=\"{}\" type=\"application/json+chapters\"></podcast:chapters>",
+            xml_escape(&chapters_url)
+        ));
+    }
     push_text_element(xml, "guid", &post.guid);
     if let Some(release_date) = post.release_date.as_deref() {
         push_text_element(xml, "pubDate", &format_rfc2822(Some(release_date)));
@@ -7683,6 +7699,10 @@ mod tests {
         );
         assert!(xml.contains("<itunes:duration>01:05</itunes:duration>"));
         assert!(xml.contains("<p><strong>Podly Chapters</strong></p><ul><li>00:00 Intro</li></ul>"));
+        assert!(xml.contains("xmlns:podcast=\"https://podcastindex.org/namespace/1.0\""));
+        assert!(xml.contains(
+            "<podcast:chapters url=\"https://podly.test/post/guid-1/chapters.json?feed_token=tok&amp;feed_secret=sec\" type=\"application/json+chapters\"></podcast:chapters>"
+        ));
         assert!(xml.contains("length=\"11\""));
     }
 
@@ -9884,6 +9904,91 @@ mod tests {
         assert_eq!(payload["total_whisper_cost"], 0.0);
         assert_eq!(payload["total_ina_cost"], 0.0);
         assert_eq!(payload["total_llm_cost"], 0.2625);
+    }
+
+    #[test]
+    fn costs_render_admin_measures_original_length_from_transcript() {
+        // (processed duration, ad identification confidences)
+        let cases: [(Option<f64>, &[f64]); 4] = [
+            (Some(3000.0), &[0.95]),      // ads cut: processed length excludes them
+            (Some(3600.0), &[0.2]),       // low-confidence ad was never cut
+            (Some(3000.0), &[0.95, 0.9]), // two model calls flagged the same segment
+            (None, &[]),                  // duration cleared after processing
+        ];
+        for (duration, confidences) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let db_path = dir.path().join("podly.sqlite");
+            seed_costs_db(&db_path);
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE post SET duration = ?1 WHERE id = 1",
+                params![duration],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO transcript_segment VALUES
+                    (1, 1, 0, 0.0, 600.0, 'Ad', NULL),
+                    (2, 1, 1, 600.0, 3600.0, 'Show', NULL)",
+                [],
+            )
+            .unwrap();
+            for (index, confidence) in confidences.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO identification (transcript_segment_id, model_call_id, confidence, label)
+                     VALUES (1, ?1, ?2, 'ad')",
+                    params![100 + index as i64, confidence],
+                )
+                .unwrap();
+            }
+            drop(conn);
+            let rates_json = write_costs_rates_json(dir.path());
+
+            let payload = render_admin_costs(CostsRenderAdminArgs {
+                db: db_path,
+                year: 2026,
+                month: 5,
+                rates_json,
+            })
+            .unwrap();
+
+            assert_eq!(
+                payload["total_audio_hours"], 1.0,
+                "case {duration:?} {confidences:?}"
+            );
+            assert_eq!(
+                payload["total_whisper_cost"], 0.04,
+                "case {duration:?} {confidences:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stats_original_duration_is_at_least_transcript_end() {
+        let segment = |id: i64, start_time: f64, end_time: f64| StatsTranscriptSegmentRow {
+            id,
+            sequence_num: id,
+            start_time,
+            end_time,
+            text: String::new(),
+            speaker_label: None,
+        };
+        let full = [segment(0, 0.0, 600.0), segment(1, 600.0, 3600.0)];
+        // Cut windows found by current settings add back to the original.
+        assert_eq!(
+            resolve_original_duration_seconds(Some(3000.0), &full, &[], 600.0),
+            3600.0
+        );
+        // Current settings find no ads; the transcript still bounds the original.
+        assert_eq!(
+            resolve_original_duration_seconds(Some(3000.0), &full, &[], 0.0),
+            3600.0
+        );
+        // A partial transcript never shortens the reconstruction.
+        let partial = [segment(0, 10.0, 20.0)];
+        assert_eq!(
+            resolve_original_duration_seconds(Some(100.0), &partial, &[], 10.0),
+            110.0
+        );
     }
 
     #[test]

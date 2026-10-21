@@ -209,6 +209,12 @@ def update_job_status_action(params: dict[str, Any]) -> dict[str, Any]:
     if not job:
         raise ValueError(f"Job {job_id} not found")
 
+    # A worker can finish between the supervisor observing cancellation and
+    # terminating its process. Cancellation owns the terminal state once set;
+    # ignore that late worker update rather than resurrecting the job.
+    if job.status == "cancelled" and status != "cancelled":
+        return {"job_id": job.id, "status": "cancelled"}
+
     now = datetime.now(UTC).replace(tzinfo=None)
 
     job.status = status

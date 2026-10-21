@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podly.invalid/contracts/writer-rpc-v1-ready.schema.json",
+  "title": "Podly writer RPC v1 readiness",
+  "type": "object",
+  "required": ["version", "backend", "schema_revision", "ready", "executor_ready", "queue_capacity", "lifecycle"],
+  "properties": {
+    "version": { "const": 1 },
+    "backend": { "const": "rust" },
+    "schema_revision": { "type": "string", "minLength": 1 },
+    "ready": { "type": "boolean" },
+    "executor_ready": { "type": "boolean" },
+    "queue_capacity": {
+      "type": "object",
+      "required": ["entries_available", "bytes_available"],
+      "properties": {
+        "entries_available": { "type": "integer", "minimum": 0 },
+        "bytes_available": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": { "enum": ["starting", "accepting", "draining"] }
+  },
+  "additionalProperties": false
+}

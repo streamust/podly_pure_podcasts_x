@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "command_id": "fixture-update-1",
+  "state": "completed",
+  "success": false,
+  "error": {
+    "code": "not_found",
+    "message": "record not found",
+    "retryable": false,
+    "outcome": "rolled_back"
+  }
+}

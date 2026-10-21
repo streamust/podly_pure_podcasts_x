@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "backend": "rust",
+  "schema_revision": "080b5181e23a",
+  "ready": true,
+  "executor_ready": true,
+  "queue_capacity": {
+    "entries_available": 128,
+    "bytes_available": 67108864
+  },
+  "lifecycle": "accepting"
+}

@@ -8,6 +8,7 @@ skips the upstream fetch and the XML rebuild entirely.
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 from unittest import mock
 
 import pytest
@@ -386,3 +387,37 @@ def test_stale_etag_takes_precedence_over_current_last_modified(app):
     assert response.status_code == 200
     assert response.data == b"<rss/>"
     render.assert_called_once()
+
+
+def test_get_feed_gzips_when_client_accepts_it(app):
+    app.testing = True
+    _register_feed_routes(app)
+
+    with app.app_context():
+        feed_id = _make_feed_with_post()
+
+    xml = b"<?xml version='1.0'?><rss>" + b"<item/>" * 500 + b"</rss>\n"
+    client = app.test_client()
+    with (
+        mock.patch("app.routes.feed_routes._spawn_async_refresh"),
+        mock.patch("app.routes.feed_routes.generate_feed_xml", return_value=xml),
+    ):
+        plain = client.get(f"/feed/{feed_id}")
+        zipped = client.get(f"/feed/{feed_id}", headers={"Accept-Encoding": "gzip"})
+        revalidated = client.get(
+            f"/feed/{feed_id}",
+            headers={
+                "Accept-Encoding": "gzip",
+                "If-None-Match": zipped.headers["ETag"],
+            },
+        )
+
+    assert "Content-Encoding" not in plain.headers
+    assert plain.data == xml
+    assert zipped.headers["Content-Encoding"] == "gzip"
+    assert gzip.decompress(zipped.data) == xml
+    assert len(zipped.data) < len(xml)
+    assert zipped.headers["ETag"] == f"W/{plain.headers['ETag']}"
+    for resp in (plain, zipped, revalidated):
+        assert "Accept-Encoding" in resp.headers["Vary"]
+    assert revalidated.status_code == 304

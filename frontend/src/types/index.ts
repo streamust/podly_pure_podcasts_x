@@ -340,7 +340,7 @@ export interface CostSummary {
   total_llm_cost: number;
   total_whisper_cost: number;
   total_ina_cost: number;
-  total_audio_hours: number;
+  total_audio_hours?: number;
   users: CostUser[];
   feeds: CostFeed[];
 }

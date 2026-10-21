@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "command_id": "fixture-action-1",
+  "state": "rejected",
+  "admitted": false,
+  "error": {
+    "code": "capacity_exhausted",
+    "message": "writer capacity exhausted",
+    "retryable": true,
+    "outcome": "not_admitted"
+  }
+}

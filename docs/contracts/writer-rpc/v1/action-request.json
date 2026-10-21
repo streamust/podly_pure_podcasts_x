@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "command_id": "fixture-action-1",
+  "operation": "action",
+  "action": "touch_feed_access_token",
+  "params": { "token_id": "synthetic-token", "token_secret": null },
+  "wait": false
+}

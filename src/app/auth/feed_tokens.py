@@ -152,6 +152,8 @@ def _resolve_feed_id(path: str) -> int | None:
         # delimiter, which would mangle URL-shaped guids and reject the token.
         if remainder.endswith("/original.mp3"):
             guid = remainder[: -len("/original.mp3")]
+        elif remainder.endswith("/chapters.json"):
+            guid = remainder[: -len("/chapters.json")]
         elif remainder.endswith(".mp3"):
             guid = remainder[: -len(".mp3")]
         else:

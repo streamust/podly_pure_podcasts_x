@@ -54,6 +54,13 @@
       "description": "Docker base image — review by hand, no pinned-digest churn",
       "matchManagers": ["dockerfile"],
       "automerge": false
+    },
+    {
+      "description": "One weekly PR (and one release) for every non-major Rust, frontend and GitHub Actions update; majors stay separate",
+      "matchManagers": ["cargo", "npm", "github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest"],
+      "groupName": "non-major",
+      "semanticCommitType": "fix"
     }
   ]
 }

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "command_id": "fixture-update-1",
+  "operation": "update",
+  "model": "Post",
+  "id": 301,
+  "data": { "duration": 90.5, "unknown_legacy_field": "ignored" },
+  "wait": true
+}

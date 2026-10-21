@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "command_id": "fixture-transaction-1",
+  "operation": "transaction",
+  "commands": [
+    {
+      "command_id": "fixture-sub-1",
+      "operation": "update",
+      "model": "Post",
+      "id": 301,
+      "data": { "whitelisted": true }
+    },
+    {
+      "command_id": "fixture-sub-2",
+      "operation": "action",
+      "action": "record_ad_windows_count",
+      "params": { "job_id": "synthetic-job", "count": 0 }
+    }
+  ],
+  "wait": true
+}

@@ -103,6 +103,19 @@ def test_default_submit_timeout_reads_env(monkeypatch: pytest.MonkeyPatch) -> No
     assert _default_submit_timeout() == 90
 
 
+def test_submit_stamps_command_before_enqueue() -> None:
+    client = WriterClient()
+    client.queue = queue.Queue()
+    cmd = _cmd("timed-command")
+
+    assert client.submit(cmd, wait=False) is None
+
+    queued = client.queue.get_nowait()
+    assert queued is cmd
+    assert cmd.enqueued_monotonic_ns is not None
+    assert cmd.enqueued_monotonic_ns <= time.monotonic_ns()
+
+
 @pytest.mark.parametrize("bad", ["not-a-number", "0", "-5", ""])
 def test_default_submit_timeout_rejects_bad_values(
     monkeypatch: pytest.MonkeyPatch, bad: str

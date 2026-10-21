@@ -206,7 +206,7 @@ Return JSON: {"refined_start": {{ad_start}}, "refined_end": {{ad_end}}, "start_r
                     "LLM full response object",
                     extra={"response_payload": response_payload},
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 self.logger.debug("LLM full response object unavailable", exc_info=True)
             # Persist the raw response immediately so it's available even if parsing fails.
             self._update_model_call(

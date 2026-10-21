@@ -38,7 +38,7 @@ def bootstrap_admin_user(auth_settings: AuthSettings) -> None:
 
     username = auth_settings.admin_username
     role = current_app.config.get("PODLY_APP_ROLE")
-    if role == "writer":
+    if role in {"writer", "bootstrap"}:
         user = User(username=username, role="admin")
         user.set_password(password)
 

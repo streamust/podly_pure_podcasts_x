@@ -20,6 +20,16 @@ _cache: OrderedDict[RateKey, tuple[float, Rates]] = OrderedDict()
 _lock = threading.Lock()
 
 
+def helper_env() -> dict[str, str]:
+    """Environment for `python -m app.<helper>` subprocesses of a server."""
+    env = os.environ.copy()
+    source_root = str(Path(__file__).resolve().parents[1])
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (source_root, env.get("PYTHONPATH")) if part
+    )
+    return env
+
+
 def lookup_model_rates(models: list[RateKey]) -> dict[RateKey, Rates]:
     """Batch cache misses in one disposable helper; serialize concurrent misses.
 
@@ -40,11 +50,6 @@ def lookup_model_rates(models: list[RateKey]) -> dict[RateKey, Rates]:
         if not missing:
             return result
 
-        env = os.environ.copy()
-        source_root = str(Path(__file__).resolve().parents[1])
-        env["PYTHONPATH"] = os.pathsep.join(
-            part for part in (source_root, env.get("PYTHONPATH")) if part
-        )
         try:
             completed = subprocess.run(
                 [sys.executable, "-m", "app.pricing_worker"],
@@ -53,7 +58,7 @@ def lookup_model_rates(models: list[RateKey]) -> dict[RateKey, Rates]:
                 text=True,
                 timeout=60,
                 check=True,
-                env=env,
+                env=helper_env(),
             )
             payload = json.loads(completed.stdout)
             if not isinstance(payload, list) or len(payload) != len(missing):

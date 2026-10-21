@@ -18,14 +18,9 @@ services:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
     restart: unless-stopped
+    stop_grace_period: 45s
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python3",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/')",
-        ]
+      test: ["CMD", "/app/scripts/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3

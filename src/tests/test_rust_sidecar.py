@@ -836,3 +836,20 @@ def test_try_detect_chapter_ads_falls_back_on_bad_payload(
     assert (
         rust_sidecar.try_detect_chapter_ads(Path("/tmp/audio.mp3"), "sponsor") is None
     )
+
+
+def test_admin_costs_payload_without_audio_hours_falls_back() -> None:
+    payload: dict[str, Any] = {
+        "year": 2026,
+        "month": 5,
+        "total_cost": 0.0,
+        "total_llm_cost": 0.0,
+        "total_whisper_cost": 0.0,
+        "total_ina_cost": 0.0,
+        "total_audio_hours": 0.0,
+        "users": [],
+        "feeds": [],
+    }
+    assert rust_sidecar._is_valid_admin_costs_payload(payload)
+    del payload["total_audio_hours"]
+    assert not rust_sidecar._is_valid_admin_costs_payload(payload)

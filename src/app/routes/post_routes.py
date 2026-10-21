@@ -23,7 +23,11 @@ from app.failure_explainer import (
     select_troubleshoot_entries,
     tail_log_lines,
 )
-from app.feeds import build_post_feed_description_html, post_feed_render_defers
+from app.feeds import (
+    build_post_feed_description_html,
+    feed_chapters,
+    post_feed_render_defers,
+)
 from app.jobs_manager import get_jobs_manager
 from app.model_call_utils import whisper_model_call_filter
 from app.models import (
@@ -143,7 +147,11 @@ def _maybe_add_admin_cost_estimate(stats_data: dict[str, Any], post: Post) -> No
         app_config.get("ina_cost_rate_per_hour", DEFAULTS.APP_INA_COST_RATE_PER_HOUR)
         or 0.0
     )
-    duration_hours = float(post.duration or 0.0) / 3600.0 if post.duration else 0.0
+    # Whisper and INA run on the unprocessed audio, so bill its length.
+    duration_seconds = processing_stats.get("original_duration_seconds")
+    if not isinstance(duration_seconds, (int, float)):
+        duration_seconds = float(post.duration or 0.0)
+    duration_hours = max(0.0, float(duration_seconds)) / 3600.0
 
     calls = stats_data.get("model_calls") or []
 
@@ -815,8 +823,10 @@ def _resolve_original_duration_seconds(
 
     if post_duration:
         # post.duration is the cut (ad-removed) audio length, so reconstruct the
-        # original episode length by adding back the removed ad time.
-        return cut_duration_seconds + ad_time_seconds
+        # original episode length by adding back the removed ad time. The
+        # transcript is of the unprocessed audio, so its end is a lower bound when
+        # current ad settings yield fewer windows than were cut.
+        return max(cut_duration_seconds + ad_time_seconds, transcript_duration_seconds)
 
     return max(
         transcript_duration_seconds,
@@ -1810,6 +1820,30 @@ def api_download_original_post(p_guid: str) -> flask.Response:
     if should_increment_download_count_for_request():
         increment_download_count(post)
     return response
+
+
+@post_bp.route("/post/<path:p_guid>/chapters.json", methods=["GET"])
+def podcast_chapters_json(p_guid: str) -> flask.Response:
+    """Podcasting 2.0 JSON chapters for the feed's `<podcast:chapters>` tag."""
+    post = Post.query.filter_by(guid=p_guid).first()
+    if post is None:
+        return flask.make_response(
+            jsonify({"error": "Post not found", "error_code": "NOT_FOUND"}), 404
+        )
+
+    whitelist_response = ensure_whitelisted_for_download(post, p_guid)
+    if whitelist_response:
+        return whitelist_response
+
+    return jsonify(
+        {
+            "version": "1.2.0",
+            "chapters": [
+                {"startTime": start_time, "title": title}
+                for start_time, title in feed_chapters(post)
+            ],
+        }
+    )
 
 
 # Legacy endpoints for backward compatibility

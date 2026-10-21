@@ -1,0 +1,1548 @@
+{
+  "revision": "080b5181e23a",
+  "tables": {
+    "app_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "background_update_interval_minute": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "automatically_whitelist_new_episodes": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "post_cleanup_retention_days": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "number_of_episodes_to_whitelist_from_archive_of_new_feed": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "enable_public_landing_page": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "user_limit_total": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "autoprocess_on_download": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "cost_rate_per_hour": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "whisper_cost_rate_per_hour": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "ina_cost_rate_per_hour": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "env_config_hash": {
+        "type": "VARCHAR(64)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "audio_segment": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "post_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "model_call_id": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "label": {
+        "type": "VARCHAR(32)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "start_time": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "end_time": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "chapter_filter_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "default_filter_strings": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "discord_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "client_id": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "client_secret": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "redirect_uri": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "guild_ids": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "allow_registration": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "feed": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "alt_id": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "title": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "description": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "author": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "rss_url": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "image_url": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "ad_detection_strategy": {
+        "type": "VARCHAR(20)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "chapter_filter_strings": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "enable_llm_chapter_fallback_tagging": {
+        "type": "BOOLEAN",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "chapter_full_block_text": {
+        "type": "BOOLEAN",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "auto_whitelist_new_episodes_override": {
+        "type": "BOOLEAN",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "enable_profanity_bleeping": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "confirm_whisperx_endpoint": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "last_changed_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "feed_access_token": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "token_id": {
+        "type": "VARCHAR(32)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "token_hash": {
+        "type": "VARCHAR(64)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "token_secret": {
+        "type": "VARCHAR(128)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "feed_id": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "user_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "last_used_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "revoked": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "feed_supporter": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "feed_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "user_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "identification": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "transcript_segment_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "model_call_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "confidence": {
+        "type": "FLOAT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "label": {
+        "type": "VARCHAR",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "jobs_manager_run": {
+      "id": {
+        "type": "VARCHAR(36)",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "status": {
+        "type": "VARCHAR(50)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "trigger": {
+        "type": "VARCHAR(100)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "started_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "completed_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "total_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "queued_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "running_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "completed_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "failed_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "skipped_jobs": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "context_json": {
+        "type": "JSON",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "counters_reset_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "llm_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_api_key": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "llm_model": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "openai_base_url": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "openai_timeout": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "openai_max_tokens": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_max_concurrent_calls": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_max_retry_attempts": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_max_input_tokens_per_call": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "llm_enable_token_rate_limiting": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_max_input_tokens_per_minute": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "enable_boundary_refinement": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "enable_word_level_boundary_refinder": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "enable_llm_chapter_fallback_tagging": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "chapter_full_block_text": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "llm_service_tier": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "model_call": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "post_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "first_segment_sequence_num": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "last_segment_sequence_num": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "model_name": {
+        "type": "VARCHAR",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "prompt": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "response": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "timestamp": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "status": {
+        "type": "VARCHAR",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "error_message": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "retry_attempts": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "next_retry_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "service_tier": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "prompt_tokens": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "cached_prompt_tokens": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "completion_tokens": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "total_tokens": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "estimated_cost_usd": {
+        "type": "FLOAT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "notification_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "enabled": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "apprise_urls": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "notify_on_failure": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "notify_on_success": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "notify_on_rust_fallback": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "include_llm_explanation": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "output_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "fade_ms": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "bleep_padding_start_ms": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "bleep_padding_end_ms": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "min_ad_segement_separation_seconds": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "min_ad_segment_length_seconds": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "min_confidence": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "auto_retry_zero_ads_on_parse_error": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "post": {
+      "feed_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "guid": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "download_url": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "title": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "unprocessed_audio_path": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "processed_audio_path": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "description": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "release_date": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "duration": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "whitelisted": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "image_url": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "download_count": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "chapter_data": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "bleep_windows": {
+        "type": "JSON",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "transcript_word_timestamps": {
+        "type": "JSON",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "refined_ad_boundaries": {
+        "type": "JSON",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "refined_ad_boundaries_updated_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "processing_job": {
+      "id": {
+        "type": "VARCHAR(36)",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "jobs_manager_run_id": {
+        "type": "VARCHAR(36)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "post_guid": {
+        "type": "VARCHAR(255)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "status": {
+        "type": "VARCHAR(50)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "current_step": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "step_name": {
+        "type": "VARCHAR(100)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "total_steps": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "progress_percentage": {
+        "type": "FLOAT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "started_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "completed_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "error_message": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "scheduler_job_id": {
+        "type": "VARCHAR(255)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "requested_by_user_id": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "billing_user_id": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "stage_history": {
+        "type": "JSON",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "ad_windows_count": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "had_classification_parse_error": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "auto_retry_attempted": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "processing_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "system_prompt_path": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "user_prompt_template_path": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "num_segments_to_input_to_prompt": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    },
+    "transcript_segment": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "post_id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "sequence_num": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "start_time": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "end_time": {
+        "type": "FLOAT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "text": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "speaker_label": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "users": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": false,
+        "server_default": false
+      },
+      "username": {
+        "type": "VARCHAR(255)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "password_hash": {
+        "type": "VARCHAR(255)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "role": {
+        "type": "VARCHAR(50)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "feed_allowance": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "feed_subscription_status": {
+        "type": "VARCHAR(32)",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "stripe_customer_id": {
+        "type": "VARCHAR(64)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "stripe_subscription_id": {
+        "type": "VARCHAR(64)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "discord_id": {
+        "type": "VARCHAR(32)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "discord_username": {
+        "type": "VARCHAR(100)",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "last_active": {
+        "type": "DATETIME",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "manual_feed_allowance": {
+        "type": "INTEGER",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      }
+    },
+    "whisper_settings": {
+      "id": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": true,
+        "python_default": true,
+        "server_default": false
+      },
+      "whisper_type": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_model": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_api_key": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "remote_base_url": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_language": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_timeout_sec": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_chunksize_mb": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_diarize": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "remote_speaker_embeddings": {
+        "type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "groq_api_key": {
+        "type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "python_default": false,
+        "server_default": false
+      },
+      "groq_model": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "groq_language": {
+        "type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "groq_max_retries": {
+        "type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "created_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      },
+      "updated_at": {
+        "type": "DATETIME",
+        "nullable": false,
+        "primary_key": false,
+        "python_default": true,
+        "server_default": false
+      }
+    }
+  }
+}

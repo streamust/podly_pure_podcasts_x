@@ -1,4 +1,5 @@
 import datetime
+import io
 import json
 import logging
 import uuid
@@ -6,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest import mock
+from xml.sax.saxutils import XMLGenerator
 
 import feedparser
 import PyRSS2Gen
@@ -13,6 +15,7 @@ import pytest
 from sqlalchemy import event, inspect
 
 from app.feeds import (
+    ItunesRSSItem,
     _build_refresh_feed_payload,
     _feed_item_duration_seconds,
     _get_base_url,
@@ -29,6 +32,7 @@ from app.feeds import (
     make_post,
     refresh_feed,
 )
+from app.memory_pressure import consume_memory_trim_contexts
 from app.models import Feed, Post, ProcessingJob
 from app.runtime_config import config as runtime_config
 from app.writer.actions.feeds import refresh_feed_action
@@ -811,6 +815,8 @@ def test_feed_item(mock_post, app):
     assert enclosure.url == "http://podly.com:5001/post/test-guid.mp3"
     assert enclosure.type == "audio/mpeg"
     assert enclosure.length == mock_post._audio_len_bytes
+    assert isinstance(result, ItunesRSSItem)
+    assert result.chapters_url is None
 
 
 def test_feed_item_appends_podly_chapters(mock_post, app):
@@ -843,6 +849,15 @@ def test_feed_item_appends_podly_chapters(mock_post, app):
     assert "<li>00:00 Episode intro</li>" in description
     assert "<li>08:05 Gold mission</li>" in description
     assert "Podly Post JSON" not in description
+    assert isinstance(result, ItunesRSSItem)
+    assert result.chapters_url == "http://podly.com:5001/post/test-guid/chapters.json"
+
+    out = io.StringIO()
+    result.publish(XMLGenerator(out, "utf-8"))
+    assert (
+        '<podcast:chapters url="http://podly.com:5001/post/test-guid/chapters.json"'
+        ' type="application/json+chapters"></podcast:chapters><guid>'
+    ) in out.getvalue()
 
 
 def test_feed_item_with_reverse_proxy(mock_post, app):
@@ -1240,7 +1255,7 @@ def test_generate_feed_xml_filters_processed_whitelisted(
         runtime_config.autoprocess_on_download = False
         trim_contexts = []
         monkeypatch.setattr(
-            "app.feeds.release_memory_to_os",
+            "app.memory_pressure.release_memory_to_os",
             lambda context, log=None: trim_contexts.append(context),
         )
         try:
@@ -1290,7 +1305,8 @@ def test_generate_feed_xml_filters_processed_whitelisted(
             mock_rss_2.assert_called_once()
             mock_rss.to_xml.assert_called_once_with("utf-8")
             assert result == "<rss></rss>"
-            assert trim_contexts == [f"feed XML feed_id={feed.id}"]
+            assert trim_contexts == []
+            assert consume_memory_trim_contexts() == []
         finally:
             runtime_config.autoprocess_on_download = original_flag
 
@@ -1306,7 +1322,7 @@ def test_generate_feed_xml_includes_all_when_autoprocess_enabled(
         runtime_config.autoprocess_on_download = True
         trim_contexts = []
         monkeypatch.setattr(
-            "app.feeds.release_memory_to_os",
+            "app.memory_pressure.release_memory_to_os",
             lambda context, log=None: trim_contexts.append(context),
         )
         try:
@@ -1359,7 +1375,8 @@ def test_generate_feed_xml_includes_all_when_autoprocess_enabled(
             mock_rss_2.assert_called_once()
             mock_rss.to_xml.assert_called_once_with("utf-8")
             assert result == "<rss></rss>"
-            assert trim_contexts == [f"feed XML feed_id={feed.id}"]
+            assert trim_contexts == []
+            assert consume_memory_trim_contexts() == []
         finally:
             runtime_config.autoprocess_on_download = original_flag
 
@@ -1377,10 +1394,6 @@ def test_generate_feed_xml_hides_posts_with_active_processing_job(
     with app.app_context():
         original_flag = getattr(runtime_config, "autoprocess_on_download", False)
         runtime_config.autoprocess_on_download = True
-        monkeypatch.setattr(
-            "app.feeds.release_memory_to_os",
-            lambda *_args, **_kwargs: None,
-        )
         try:
             feed = Feed(rss_url="http://example.com/feed", title="Feed 1")
             db.session.add(feed)
@@ -1506,7 +1519,7 @@ def test_generate_aggregate_feed_xml_releases_transient_memory(
         mock_rss.to_xml.return_value = "<rss></rss>"
         trim_contexts = []
         monkeypatch.setattr(
-            "app.feeds.release_memory_to_os",
+            "app.memory_pressure.release_memory_to_os",
             lambda context, log=None: trim_contexts.append(context),
         )
 
@@ -1517,7 +1530,8 @@ def test_generate_aggregate_feed_xml_releases_transient_memory(
         assert all(
             call.kwargs["prepend_feed_title"] for call in mock_feed_item.call_args_list
         )
-        assert trim_contexts == ["aggregate feed XML user_id=5"]
+        assert trim_contexts == []
+        assert consume_memory_trim_contexts() == []
 
 
 @mock.patch("app.feeds.Post")
@@ -1930,9 +1944,6 @@ def test_refresh_trims_once_after_context_session_cleanup(monkeypatch, planner_f
     )
     monkeypatch.setattr(
         memory_pressure, "release_memory_to_os", lambda *args: events.append("trim")
-    )
-    monkeypatch.setattr(
-        "app.feeds.release_memory_to_os", lambda *args: events.append("early trim")
     )
     _register_memory_cleanup(test_app)
     with test_app.app_context():

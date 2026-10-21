@@ -113,6 +113,33 @@ def test_discard_processed_command_payload_releases_payload_refs() -> None:
     assert cmd.reply_queue is None
 
 
+def test_writer_timing_payload_reports_queue_execution_and_total() -> None:
+    cmd = WriteCommand(
+        id="timed-command",
+        type=WriteCommandType.ACTION,
+        model=None,
+        data={"action": "update_user_last_active", "params": {"user_id": 1}},
+        enqueued_monotonic_ns=1_000_000_000,
+    )
+
+    payload = service._writer_timing_payload(
+        cmd,
+        dequeued_monotonic_ns=1_003_000_000,
+        finished_monotonic_ns=1_008_000_000,
+        success=True,
+    )
+
+    assert payload == {
+        "command_id": "timed-command",
+        "operation": "action",
+        "action": "update_user_last_active",
+        "queue_ms": 3.0,
+        "execution_ms": 5.0,
+        "total_ms": 8.0,
+        "success": True,
+    }
+
+
 def test_idle_trim_thread_skips_when_no_activity(monkeypatch) -> None:
     """If activity_counter never moves, the watchdog must not trim — otherwise
     a fully idle writer burns syscalls trimming an empty heap forever.

@@ -1,3 +1,15 @@
+# [3.0.0](https://github.com/MaroonBrian1928/podly_pure_podcasts_x/compare/v2.1.2...v3.0.0) (2026-10-20)
+
+
+* feat!: Rust writer and sidecars by default ([bd6d851](https://github.com/MaroonBrian1928/podly_pure_podcasts_x/commit/bd6d8511ebd556c827621cdfbbd5bc7a4c20536f))
+
+
+### BREAKING CHANGES
+
+* PODLY_WRITER_BACKEND now defaults to rust. Installs
+outside the Docker image must set PODLY_WRITER_BACKEND=python or provide
+the podly_writer binary.
+
 ## [2.1.2](https://github.com/MaroonBrian1928/podly_pure_podcasts_x/compare/v2.1.1...v2.1.2) (2026-09-23)
 
 

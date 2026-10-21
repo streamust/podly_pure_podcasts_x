@@ -21,6 +21,9 @@ class WriteCommand:
     data: dict[str, Any]
     # The queue to send the result back to (managed by the client)
     reply_queue: Any = None
+    # Monotonic client timestamp used only for opt-in benchmark timing. It is
+    # process-local clock data, never persisted or returned as a write result.
+    enqueued_monotonic_ns: int | None = None
 
 
 @dataclass

@@ -2,11 +2,13 @@ import logging
 import os
 import secrets
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from flask import Flask, current_app, g, has_app_context, request
+from flask import Flask, current_app, g, has_app_context, request, request_started
 
 
 def _load_dotenv_files() -> None:
@@ -184,6 +186,21 @@ def create_writer_app() -> Flask:
     )
 
 
+def create_bootstrap_app() -> Flask:
+    """Run schema, admin, and settings initialization once before a runtime writer.
+
+    Unlike the legacy writer app, bootstrap must fail closed if defaults cannot
+    be initialized. It does not start HTTP, a scheduler, or writer IPC.
+    """
+    return _create_configured_app(
+        app_role="bootstrap",
+        run_startup=True,
+        start_scheduler=False,
+        register_http=False,
+        fail_on_startup_error=True,
+    )
+
+
 def create_processing_app() -> Flask:
     """Create the per-job processing Flask app.
 
@@ -206,6 +223,7 @@ def _create_configured_app(
     start_scheduler: bool,
     register_http: bool = True,
     initialize_migrations: bool = True,
+    fail_on_startup_error: bool = False,
 ) -> Flask:
     # Setup directories early but only when actually creating the app (not during migrations)
     if not is_test:
@@ -229,7 +247,10 @@ def _create_configured_app(
 
     with app.app_context():
         if run_startup:
-            _run_app_startup(auth_settings)
+            if fail_on_startup_error:
+                _run_app_startup(auth_settings, fail_on_settings_error=True)
+            else:
+                _run_app_startup(auth_settings)
         else:
             _hydrate_web_config()
 
@@ -324,6 +345,13 @@ def _validate_env_key_conflicts() -> None:
 
 def _create_flask_app() -> Flask:
     static_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "static"))
+    instance_path = os.environ.get("PODLY_INSTANCE_DIR")
+    if instance_path:
+        return Flask(
+            __name__,
+            static_folder=static_folder,
+            instance_path=os.path.abspath(instance_path),
+        )
     return Flask(__name__, static_folder=static_folder)
 
 
@@ -403,9 +431,11 @@ def _configure_database(app: Flask) -> None:
         "connect_args": {
             "timeout": connect_timeout,
         },
-        # Keep pool small to reduce concurrent SQLite writers
-        "pool_size": 5,
-        "max_overflow": 5,
+        # Retain fewer idle read connections and their SQLite descriptors.
+        # Preserve the existing ten-connection concurrency ceiling; runtime
+        # writes still belong exclusively to the writer service.
+        "pool_size": 3,
+        "max_overflow": 7,
     }
 
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
@@ -526,9 +556,26 @@ def _register_api_logging(app: Flask) -> None:
 
 def _register_memory_cleanup(app: Flask) -> None:
     from app.memory_pressure import (
+        RequestBurstTrim,
         consume_memory_trim_contexts,
         release_memory_to_os,
     )
+
+    burst_trim = RequestBurstTrim()
+    app.extensions["podly_request_burst_trim"] = burst_trim
+
+    # request_started fires before any before_request hook can short-circuit;
+    # the g marker keeps the count balanced if context setup fails earlier.
+    def _note_request_started(_sender: Flask, **_extra: Any) -> None:
+        g.podly_burst_tracked = True
+        burst_trim.started()
+
+    request_started.connect(_note_request_started, app, weak=False)
+
+    @app.teardown_request
+    def _note_request_finished(_exc: BaseException | None) -> None:
+        if g.pop("podly_burst_tracked", False):
+            burst_trim.finished()
 
     @app.teardown_appcontext
     def _release_memory_after_app_context(exc: BaseException | None) -> None:
@@ -538,7 +585,7 @@ def _register_memory_cleanup(app: Flask) -> None:
 
         try:
             db.session.remove()
-        except Exception as remove_exc:  # noqa: BLE001
+        except Exception as remove_exc:
             app_logger.debug(
                 "Failed to remove DB session before memory trim: %s",
                 remove_exc,
@@ -549,7 +596,37 @@ def _register_memory_cleanup(app: Flask) -> None:
         release_memory_to_os(f"app context teardown after {context}", app_logger)
 
 
-def _run_app_startup(auth_settings: AuthSettings) -> None:
+def _trim_after_request_burst(app: Flask) -> None:
+    from app.memory_pressure import release_memory_to_os
+
+    burst_trim = app.extensions["podly_request_burst_trim"]
+    if not burst_trim.claim():
+        return
+    with app.app_context():
+        # Closing every idle pooled connection lets SQLite close the database
+        # descriptors it defers while any connection holds the WAL read lock.
+        db.engine.dispose()
+    release_memory_to_os("web request burst", app_logger)
+
+
+def _start_request_burst_trim(app: Flask) -> None:
+    if not _env_bool("PODLY_MEMORY_TRIM_ENABLED", default=True):
+        return
+
+    def _loop() -> None:
+        while True:
+            time.sleep(0.25)
+            try:
+                _trim_after_request_burst(app)
+            except Exception:
+                app_logger.debug("request burst trim failed", exc_info=True)
+
+    threading.Thread(target=_loop, name="web-burst-trim", daemon=True).start()
+
+
+def _run_app_startup(
+    auth_settings: AuthSettings, *, fail_on_settings_error: bool = False
+) -> None:
     from flask_migrate import upgrade
 
     upgrade()
@@ -558,8 +635,10 @@ def _run_app_startup(auth_settings: AuthSettings) -> None:
         ensure_defaults_and_hydrate()
 
         _reset_processor_if_loaded()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         app_logger.error(f"Failed to initialize settings: {exc}")
+        if fail_on_settings_error:
+            raise
 
 
 def _hydrate_web_config() -> None:
@@ -603,3 +682,4 @@ def _start_scheduler_and_jobs(app: Flask) -> None:
     )
     schedule_cleanup_job(getattr(config, "post_cleanup_retention_days", None))
     schedule_memory_trim_job()
+    _start_request_burst_trim(app)

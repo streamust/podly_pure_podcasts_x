@@ -148,7 +148,7 @@ def _notify_rust_fallback(operation: str, error: str) -> None:
         from app.notifications import notification_service
 
         notification_service.notify_rust_fallback(operation=operation, error=error)
-    except Exception:  # noqa: BLE001 - notifications must never affect the sidecar
+    except Exception:
         LOGGER.debug("rust-fallback notification dispatch failed", exc_info=True)
 
 
@@ -1674,6 +1674,7 @@ def _is_valid_admin_costs_payload(payload: dict[str, Any]) -> bool:
         "total_llm_cost",
         "total_whisper_cost",
         "total_ina_cost",
+        "total_audio_hours",
         "users",
         "feeds",
     }

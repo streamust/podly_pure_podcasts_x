@@ -1,5 +1,5 @@
 # Multi-stage build for combined frontend and backend
-FROM node:18-alpine AS frontend-build
+FROM node:24-alpine AS frontend-build
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ WORKDIR /app/rust
 
 COPY rust/Cargo.toml rust/Cargo.lock* ./
 COPY rust/src/ ./src/
-RUN cargo build --release --locked
+RUN cargo build --release --locked --bins
 
 FROM python:3.14-slim AS backend
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
@@ -58,6 +58,11 @@ RUN JEMALLOC_PATH="$(dpkg -L libjemalloc2 | grep -E 'libjemalloc\.so\.2$' | head
     printf '%s\n' "$JEMALLOC_PATH" > /etc/podly-jemalloc-path && \
     printf '%s\n' "$JEMALLOC_PATH" > /etc/ld.so.preload
 ENV PODLY_JEMALLOC_PRELOAD=1
+# A background thread returns freed pages to the OS after the decay delay even
+# when a process is idle, instead of waiting for that arena's next allocation.
+# The GIL serializes Python allocation, so two arenas cost no parallelism and
+# fragment far less than the per-CPU default.
+ENV MALLOC_CONF=background_thread:true,narenas:2
 
 COPY pyproject.toml uv.lock ./
 
@@ -67,10 +72,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY src/ ./src/
 RUN rm -rf ./src/instance
 COPY scripts/ ./scripts/
-RUN chmod +x scripts/start_services.sh
+RUN chmod +x scripts/start_services.sh scripts/healthcheck.sh
 
 RUN mkdir -p /app/bin
 COPY --from=rust-tools /app/rust/target/release/podly_tools /app/bin/podly_tools
+COPY --from=rust-tools /app/rust/target/release/podly_writer /app/bin/podly_writer
 
 COPY --from=frontend-build /app/dist ./src/app/static
 

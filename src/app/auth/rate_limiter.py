@@ -21,10 +21,14 @@ class FailureRateLimiter:
         storage: MutableMapping[str, FailureState] | None = None,
         max_backoff_seconds: int = 300,
         warm_up_attempts: int = 3,
+        max_entries: int = 10_000,
     ) -> None:
         self._storage = storage if storage is not None else {}
         self._max_backoff_seconds = max_backoff_seconds
         self._warm_up_attempts = warm_up_attempts
+        # Keys can come from client input (feed token ids), so storage is bounded.
+        self._max_entries = max_entries
+        self._last_prune: datetime | None = None
 
     def register_failure(self, key: str) -> int:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -45,7 +49,7 @@ class FailureRateLimiter:
             state.blocked_until = None
 
         self._storage[key] = state
-        self._prune_stale(now)
+        self._prune(now)
         return backoff_seconds
 
     def register_success(self, key: str) -> None:
@@ -69,11 +73,17 @@ class FailureRateLimiter:
 
         return remaining
 
-    def _prune_stale(self, now: datetime) -> None:
-        stale_keys: list[str] = []
-        for key, state in self._storage.items():
-            if now - state.last_attempt > timedelta(hours=1):
-                stale_keys.append(key)
+    def _prune(self, now: datetime) -> None:
+        if self._last_prune is None or now - self._last_prune > timedelta(minutes=1):
+            self._last_prune = now
+            stale_keys = [
+                key
+                for key, state in self._storage.items()
+                if now - state.last_attempt > timedelta(hours=1)
+            ]
+            for key in stale_keys:
+                del self._storage[key]
 
-        for key in stale_keys:
-            del self._storage[key]
+        # Dict order is first-failure order, so this evicts the oldest keys.
+        while len(self._storage) > self._max_entries:
+            del self._storage[next(iter(self._storage))]

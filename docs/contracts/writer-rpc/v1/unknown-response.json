@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "command_id": "fixture-update-1",
+  "state": "unknown",
+  "admitted": true,
+  "error": {
+    "code": "deadline_exceeded",
+    "message": "deadline exceeded after admission",
+    "retryable": false,
+    "outcome": "unknown"
+  }
+}

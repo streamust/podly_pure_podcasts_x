@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,7 +86,7 @@ def test_refine_tags_parse_failures_with_finish_reason(
     assert result.start_adjustment_reason == "heuristic_fallback"
     assert result.end_adjustment_reason == "unchanged"
 
-    update_calls = cast(MagicMock, refiner._update_model_call).call_args_list
+    update_calls = refiner._update_model_call.call_args_list
     assert update_calls[0].kwargs["status"] == "received_response"
     assert update_calls[0].kwargs["error_message"] is None
     assert update_calls[0].kwargs["usage"] == {
@@ -326,7 +325,7 @@ def test_refine_reverts_invalid_start_only_partial_response() -> None:
         result.end_adjustment_reason == "Ad content continues past provided segments."
     )
 
-    update_calls = cast(MagicMock, refiner._update_model_call).call_args_list
+    update_calls = refiner._update_model_call.call_args_list
     assert update_calls[0].kwargs["status"] == "received_response"
     assert update_calls[1].kwargs["status"] == "success_heuristic"
     assert update_calls[1].kwargs["error_message"] == "start_out_of_window"
@@ -663,7 +662,7 @@ def test_refine_falls_back_when_rust_refine_from_llm_reports_parse_failed(
     assert result.refined_end == 110.0
     assert result.start_adjustment_reason == "heuristic_fallback"
 
-    update_calls = cast(MagicMock, refiner._update_model_call).call_args_list
+    update_calls = refiner._update_model_call.call_args_list
     assert update_calls[-1].kwargs["status"] == "success_heuristic"
     assert update_calls[-1].kwargs["error_message"] == "parse_failed:format"
 

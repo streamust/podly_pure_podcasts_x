@@ -1,21 +1,41 @@
+import base64
+import http.client
+import json
 import logging
 import os
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from queue import Empty, Queue
 from typing import Any, cast
 
 from flask import current_app
 
-from app.ipc import make_client_manager
-from app.writer.model_ops import execute_model_command
+from app.writer.backend import WriterBackend, selected_writer_backend
 from app.writer.protocol import WriteCommand, WriteCommandType, WriteResult
 
 logger = logging.getLogger("global_logger")
 
 DEFAULT_SUBMIT_TIMEOUT_SECONDS = 30
+RUST_WRITER_HOST = "127.0.0.1"
+RUST_WRITER_PORT = 50_001
+RUST_WRITER_MAX_CONNECTIONS = 16
+RUST_WRITER_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+_RUST_CONNECTIONS = threading.BoundedSemaphore(RUST_WRITER_MAX_CONNECTIONS)
+
+
+class WriterTransportError(ConnectionError):
+    """The Rust writer could not be reached or rejected the RPC envelope."""
+
+
+class WriterOutcomeUnknownError(TimeoutError):
+    """A write may have been admitted, but its final outcome was not received."""
+
+    def __init__(self, command_id: str, message: str) -> None:
+        super().__init__(f"writer outcome unknown for command {command_id}: {message}")
+        self.command_id = command_id
 
 
 def _default_submit_timeout() -> int:
@@ -48,6 +68,24 @@ def _default_submit_timeout() -> int:
     return value
 
 
+def _model_column_values(data: dict[str, Any]) -> dict[str, Any]:
+    """Encode datetimes the way SQLAlchemy stores them in SQLite.
+
+    The Rust writer stores DateTime columns as the text it receives, and
+    SQLAlchemy only parses back "YYYY-MM-DD HH:MM:SS.ffffff".
+    """
+    return {
+        key: (
+            (
+                value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
+            ).strftime("%Y-%m-%d %H:%M:%S.%f")
+            if isinstance(value, datetime)
+            else value
+        )
+        for key, value in data.items()
+    }
+
+
 class WriterClient:
     def __init__(self) -> None:
         self.manager: Any = None
@@ -60,10 +98,44 @@ class WriterClient:
         self._tls = threading.local()
 
     def connect(self) -> None:
+        if selected_writer_backend() is WriterBackend.RUST:
+            self._check_rust_readiness(_default_submit_timeout())
+            return
         if not self.manager:
+            from app.ipc import make_client_manager
+
             manager = make_client_manager()
             self.manager = manager
             self.queue = manager.get_command_queue()
+
+    @staticmethod
+    def _check_rust_readiness(timeout: int) -> None:
+        connection = http.client.HTTPConnection(
+            RUST_WRITER_HOST, RUST_WRITER_PORT, timeout=timeout
+        )
+        try:
+            connection.request("GET", "/v1/ready")
+            response = connection.getresponse()
+            payload = response.read(4096)
+            if response.status != 200:
+                raise WriterTransportError(
+                    f"Rust writer readiness failed with HTTP {response.status}"
+                )
+            ready = json.loads(payload)
+            if (
+                ready.get("backend") != "rust"
+                or ready.get("version") != 1
+                or ready.get("ready") is not True
+            ):
+                raise WriterTransportError(
+                    "writer endpoint is not ready for protocol version 1"
+                )
+        except WriterTransportError:
+            raise
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            raise WriterTransportError("Rust writer readiness check failed") from exc
+        finally:
+            connection.close()
 
     def _should_use_local_fallback(self) -> bool:
         if os.environ.get("PYTEST_CURRENT_TEST"):
@@ -149,17 +221,14 @@ class WriterClient:
 
         func = cast(Callable[[dict[str, Any]], Any], func_obj)
         result = func(cmd.data.get("params", {}))
-        return WriteResult(
-            cmd.id,
-            True,
-            data=result if isinstance(result, dict) else {"result": result},
-        )
+        return WriteResult(cmd.id, True, data=result)
 
     def _local_execute_model(
         self, cmd: WriteCommand, model_map: dict[str, Any]
     ) -> WriteResult:
         # Import locally to avoid cyclic dependencies
         from app.extensions import db
+        from app.writer.model_ops import execute_model_command
 
         if not cmd.model or cmd.model not in model_map:
             return WriteResult(cmd.id, False, error=f"Unknown model: {cmd.model}")
@@ -194,6 +263,8 @@ class WriterClient:
     ) -> WriteResult | None:
         if timeout is None:
             timeout = _default_submit_timeout()
+        if selected_writer_backend() is WriterBackend.RUST:
+            return self._submit_rust(cmd, wait=wait, timeout=timeout)
         reply_q: Queue[Any] | None = None
         if not self.queue:
             try:
@@ -216,6 +287,7 @@ class WriterClient:
             cmd.reply_queue = reply_q
 
         if self.queue:
+            cmd.enqueued_monotonic_ns = time.monotonic_ns()
             self.queue.put(cmd)
 
         if wait:
@@ -223,6 +295,354 @@ class WriterClient:
                 raise RuntimeError("Reply queue was not initialized")
             return self._await_reply(reply_q, cmd, timeout)
         return None
+
+    def _submit_rust(
+        self, cmd: WriteCommand, *, wait: bool, timeout: int
+    ) -> WriteResult | None:
+        if timeout <= 0:
+            raise ValueError("writer timeout must be positive")
+        deadline = time.monotonic() + timeout
+        encoded = self._encode_rust_command(cmd, wait)
+        auth_key = os.environ.get("PODLY_IPC_AUTHKEY", "").encode("utf-8")
+        if not auth_key:
+            raise WriterTransportError(
+                "PODLY_IPC_AUTHKEY is required for Rust writer mode"
+            )
+        status, response_payload = self._post_rust_command(
+            cmd.id, encoded, auth_key, deadline
+        )
+        return self._adapt_rust_response(cmd, wait, status, response_payload)
+
+    @staticmethod
+    def _encode_rust_command(cmd: WriteCommand, wait: bool) -> bytes:
+        try:
+            payload = WriterClient._rust_command_payload(cmd, wait)
+            encoded = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ValueError(
+                "writer command cannot be encoded as protocol JSON"
+            ) from exc
+        if len(encoded) > 16 * 1024 * 1024:
+            raise WriterTransportError(
+                "Rust writer command exceeds the request size limit"
+            )
+        return encoded
+
+    @staticmethod
+    def _post_rust_command(
+        command_id: str, encoded: bytes, auth_key: bytes, deadline: float
+    ) -> tuple[int, Any]:
+        connection = WriterClient._open_rust_connection(deadline)
+        token = base64.urlsafe_b64encode(auth_key).decode("ascii").rstrip("=")
+        try:
+            connection.request(
+                "POST",
+                "/v1/commands",
+                body=encoded,
+                headers={
+                    "Authorization": f"PodlyWriter {token}",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(encoded)),
+                    "Connection": "close",
+                },
+            )
+            return WriterClient._read_rust_response(connection, command_id, deadline)
+        except WriterTransportError, WriterOutcomeUnknownError, ValueError:
+            raise
+        except (TimeoutError, OSError, http.client.HTTPException) as exc:
+            raise WriterOutcomeUnknownError(
+                command_id, "connection ended after request send"
+            ) from exc
+        finally:
+            connection.close()
+            _RUST_CONNECTIONS.release()
+
+    @staticmethod
+    def _open_rust_connection(deadline: float) -> http.client.HTTPConnection:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not _RUST_CONNECTIONS.acquire(timeout=max(remaining, 0)):
+            raise WriterTransportError("Rust writer connection capacity is exhausted")
+
+        try:
+            connection = http.client.HTTPConnection(
+                RUST_WRITER_HOST,
+                RUST_WRITER_PORT,
+                timeout=max(deadline - time.monotonic(), 0.001),
+            )
+            # Connecting is a definite pre-admission operation. Any failure once
+            # request bytes may have been sent has an unknown write outcome.
+            connection.connect()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WriterTransportError(
+                    "Rust writer request deadline expired before send"
+                )
+            if connection.sock is not None:
+                connection.sock.settimeout(remaining)
+            return connection
+        except (OSError, http.client.HTTPException) as exc:
+            if "connection" in locals():
+                connection.close()
+            _RUST_CONNECTIONS.release()
+            raise WriterTransportError("Rust writer connection failed") from exc
+        except BaseException:
+            if "connection" in locals():
+                connection.close()
+            _RUST_CONNECTIONS.release()
+            raise
+
+    @staticmethod
+    def _read_rust_response(
+        connection: http.client.HTTPConnection, command_id: str, deadline: float
+    ) -> tuple[int, Any]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise WriterOutcomeUnknownError(
+                command_id, "request deadline expired after send"
+            )
+        if connection.sock is not None:
+            connection.sock.settimeout(remaining)
+        response = connection.getresponse()
+        response_bytes = response.read(RUST_WRITER_MAX_RESPONSE_BYTES + 1)
+        if len(response_bytes) > RUST_WRITER_MAX_RESPONSE_BYTES:
+            raise WriterOutcomeUnknownError(
+                command_id, "writer response exceeded size limit"
+            )
+        try:
+            response_payload = json.loads(response_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise WriterOutcomeUnknownError(
+                command_id, "writer returned invalid JSON"
+            ) from exc
+        return response.status, response_payload
+
+    @staticmethod
+    def _rust_command_payload(cmd: WriteCommand, wait: bool) -> dict[str, Any]:
+        common = {"version": 1, "command_id": cmd.id, "wait": wait}
+        if cmd.type is WriteCommandType.ACTION:
+            return {
+                **common,
+                "operation": "action",
+                "action": cmd.data["action"],
+                "params": cmd.data.get("params", {}),
+            }
+        if cmd.type is WriteCommandType.CREATE:
+            return {
+                **common,
+                "operation": "create",
+                "model": cmd.model,
+                "data": _model_column_values(cmd.data),
+            }
+        if cmd.type is WriteCommandType.UPDATE:
+            values = _model_column_values(cmd.data)
+            record_id = values.pop("id", None)
+            return {
+                **common,
+                "operation": "update",
+                "model": cmd.model,
+                "id": record_id,
+                "data": values,
+            }
+        if cmd.type is WriteCommandType.DELETE:
+            return {
+                **common,
+                "operation": "delete",
+                "model": cmd.model,
+                "id": cmd.data.get("id"),
+            }
+        if cmd.type is WriteCommandType.TRANSACTION:
+            commands = cmd.data.get("commands", [])
+            return {
+                **common,
+                "operation": "transaction",
+                "commands": [
+                    WriterClient._rust_transaction_command(item) for item in commands
+                ],
+            }
+        raise ValueError(f"unsupported writer command type: {cmd.type}")
+
+    @staticmethod
+    def _rust_transaction_command(command: Any) -> dict[str, Any]:
+        if isinstance(command, WriteCommand):
+            payload = WriterClient._rust_command_payload(command, wait=False)
+            return {
+                key: value
+                for key, value in payload.items()
+                if key not in {"version", "wait"}
+            }
+        if not isinstance(command, dict):
+            raise ValueError(
+                "transaction commands must be writer commands or dictionaries"
+            )
+        command_type = WriteCommandType(command["type"])
+        nested = WriteCommand(
+            id=str(command.get("id", "sub")),
+            type=command_type,
+            model=command.get("model"),
+            data=command.get("data", {}),
+        )
+        payload = WriterClient._rust_command_payload(nested, wait=False)
+        return {
+            key: value
+            for key, value in payload.items()
+            if key not in {"version", "wait"}
+        }
+
+    @staticmethod
+    def _adapt_rust_response(
+        cmd: WriteCommand, wait: bool, status: int, payload: Any
+    ) -> WriteResult | None:
+        WriterClient._validate_response_envelope(cmd.id, payload)
+        response_id = payload.get("command_id")
+        state = payload.get("state")
+        if state == "rejected":
+            return WriterClient._adapt_rejection(cmd, wait, response_id, payload)
+        if state == "unknown":
+            raise WriterOutcomeUnknownError(
+                cmd.id, "writer reported an unknown outcome"
+            )
+        if state == "accepted":
+            return WriterClient._adapt_admission(
+                cmd, wait, status, response_id, payload
+            )
+        if state != "completed":
+            raise WriterOutcomeUnknownError(cmd.id, "writer response state is invalid")
+        return WriterClient._adapt_completion(cmd, wait, status, response_id, payload)
+
+    @staticmethod
+    def _validate_response_envelope(command_id: str, payload: Any) -> None:
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            raise WriterOutcomeUnknownError(
+                command_id, "writer response protocol mismatch"
+            )
+
+    @staticmethod
+    def _adapt_rejection(
+        cmd: WriteCommand, wait: bool, response_id: Any, payload: dict[str, Any]
+    ) -> WriteResult | None:
+        if response_id not in (None, cmd.id) or payload.get("admitted") is not False:
+            raise WriterOutcomeUnknownError(cmd.id, "invalid rejection response")
+        error = payload.get("error") or {}
+        code = error.get("code", "writer_rejected")
+        message = error.get("message", "writer rejected command")
+        if not wait:
+            raise WriterTransportError(
+                f"Rust writer rejected command: {code}: {message}"
+            )
+        return WriteResult(cmd.id, False, error=f"{code}: {message}")
+
+    @staticmethod
+    def _adapt_admission(
+        cmd: WriteCommand,
+        wait: bool,
+        status: int,
+        response_id: Any,
+        payload: dict[str, Any],
+    ) -> None:
+        if (
+            wait
+            or response_id != cmd.id
+            or payload.get("admitted") is not True
+            or status != 202
+        ):
+            raise WriterOutcomeUnknownError(cmd.id, "invalid admission response")
+
+    @staticmethod
+    def _adapt_completion(
+        cmd: WriteCommand,
+        wait: bool,
+        status: int,
+        response_id: Any,
+        payload: dict[str, Any],
+    ) -> WriteResult | None:
+        if response_id != cmd.id:
+            raise WriterOutcomeUnknownError(
+                cmd.id, "writer response command ID mismatch"
+            )
+        if status != 200:
+            raise WriterOutcomeUnknownError(cmd.id, "unexpected completion HTTP status")
+        if not wait:
+            raise WriterOutcomeUnknownError(
+                cmd.id, "unexpected completion for asynchronous command"
+            )
+        if not payload.get("success", False):
+            return WriterClient._adapt_failed_completion(cmd, payload)
+
+        result = payload.get("result")
+        if cmd.type is WriteCommandType.TRANSACTION:
+            if not isinstance(result, dict) or not isinstance(
+                result.get("results"), list
+            ):
+                raise WriterOutcomeUnknownError(cmd.id, "invalid transaction response")
+            transaction_results = []
+            for index, item in enumerate(result["results"]):
+                if not isinstance(item, dict):
+                    raise WriterOutcomeUnknownError(
+                        cmd.id, "invalid transaction result"
+                    )
+                entry = cast(dict[str, Any], item)
+                if entry.get("success") is not True:
+                    raise WriterOutcomeUnknownError(
+                        cmd.id, "invalid transaction result"
+                    )
+                transaction_results.append(
+                    {
+                        "command_id": entry.get("command_id"),
+                        "success": True,
+                        "data": WriterClient._legacy_result_data(
+                            entry.get("data"),
+                            WriterClient._transaction_operation_type(cmd, index),
+                        ),
+                        "error": None,
+                    }
+                )
+            data = {"results": transaction_results}
+        else:
+            data = WriterClient._legacy_result_data(result, cmd.type)
+        return WriteResult(cmd.id, True, data=data)
+
+    @staticmethod
+    def _adapt_failed_completion(
+        cmd: WriteCommand, payload: dict[str, Any]
+    ) -> WriteResult:
+        error = payload.get("error") or {}
+        if error.get("outcome") == "unknown":
+            raise WriterOutcomeUnknownError(
+                cmd.id, error.get("message", "unknown outcome")
+            )
+        code = error.get("code", "writer_failed")
+        message = error.get("message", "writer command failed")
+        return WriteResult(cmd.id, False, error=f"{code}: {message}")
+
+    @staticmethod
+    def _transaction_operation_type(
+        cmd: WriteCommand, index: int
+    ) -> WriteCommandType | None:
+        commands = cmd.data.get("commands", [])
+        if index >= len(commands):
+            return None
+        item = commands[index]
+        if isinstance(item, WriteCommand):
+            return item.type
+        if isinstance(item, dict):
+            try:
+                return WriteCommandType(item.get("type"))
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _legacy_result_data(value: Any, command_type: WriteCommandType | None) -> Any:
+        # The Python writer service returns action values unwrapped: callers
+        # test `result.data` for truthiness (idle dequeue is None) and read
+        # scalar counts directly.
+        if command_type is WriteCommandType.CREATE:
+            return value if isinstance(value, dict) else None
+        if command_type in (WriteCommandType.UPDATE, WriteCommandType.DELETE):
+            return None
+        return value
 
     @staticmethod
     def _await_reply(

@@ -1,4 +1,5 @@
 import logging
+import math
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -14,6 +15,14 @@ from pydantic import BaseModel
 
 from podcast_processor.audio import split_audio
 from shared.config import GroqWhisperConfig, RemoteWhisperConfig
+
+
+def _finite_or_none(value: Any) -> float | None:
+    """NaN/inf would serialize as invalid JSON that the Rust writer rejects."""
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 class WordTimestamp(BaseModel):
@@ -334,9 +343,9 @@ class OpenAIWhisperTranscriber(Transcriber):
 
         return WordTimestamp(
             word=str(text),
-            start=float(start) if start is not None else None,
-            end=float(end) if end is not None else None,
-            score=float(score) if score is not None else None,
+            start=_finite_or_none(start),
+            end=_finite_or_none(end),
+            score=_finite_or_none(score),
         )
 
     @classmethod

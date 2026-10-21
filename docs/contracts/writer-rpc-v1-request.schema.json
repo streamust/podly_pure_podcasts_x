@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podly.invalid/contracts/writer-rpc-v1-request.schema.json",
+  "title": "Podly writer RPC v1 request",
+  "oneOf": [
+    { "$ref": "#/$defs/action" },
+    { "$ref": "#/$defs/create" },
+    { "$ref": "#/$defs/update" },
+    { "$ref": "#/$defs/delete" },
+    { "$ref": "#/$defs/transaction" }
+  ],
+  "$defs": {
+    "command_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "id": { "oneOf": [{ "type": "integer" }, { "type": "string", "minLength": 1 }] },
+    "base": {
+      "type": "object",
+      "required": ["version", "command_id", "operation", "wait"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "operation": { "type": "string" },
+        "wait": { "type": "boolean" }
+      }
+    },
+    "action": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["action", "params"],
+          "properties": {
+            "version": { "const": 1 },
+            "command_id": { "$ref": "#/$defs/command_id" },
+            "operation": { "const": "action" },
+            "action": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "params": { "type": "object" },
+            "wait": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "create": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["model", "data"],
+          "properties": {
+            "version": { "const": 1 },
+            "command_id": { "$ref": "#/$defs/command_id" },
+            "operation": { "const": "create" },
+            "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "data": { "type": "object" },
+            "wait": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "update": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["model", "id", "data"],
+          "properties": {
+            "version": { "const": 1 },
+            "command_id": { "$ref": "#/$defs/command_id" },
+            "operation": { "const": "update" },
+            "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "id": { "$ref": "#/$defs/id" },
+            "data": { "type": "object" },
+            "wait": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "delete": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["model", "id"],
+          "properties": {
+            "version": { "const": 1 },
+            "command_id": { "$ref": "#/$defs/command_id" },
+            "operation": { "const": "delete" },
+            "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "id": { "$ref": "#/$defs/id" },
+            "wait": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "subcommand": {
+      "oneOf": [
+        { "$ref": "#/$defs/sub_action" },
+        { "$ref": "#/$defs/sub_create" },
+        { "$ref": "#/$defs/sub_update" },
+        { "$ref": "#/$defs/sub_delete" }
+      ]
+    },
+    "sub_action": {
+      "type": "object",
+      "required": ["command_id", "operation", "action", "params"],
+      "properties": {
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "operation": { "const": "action" },
+        "action": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "params": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "sub_create": {
+      "type": "object",
+      "required": ["command_id", "operation", "model", "data"],
+      "properties": {
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "operation": { "const": "create" },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "sub_update": {
+      "type": "object",
+      "required": ["command_id", "operation", "model", "id", "data"],
+      "properties": {
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "operation": { "const": "update" },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "$ref": "#/$defs/id" },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "sub_delete": {
+      "type": "object",
+      "required": ["command_id", "operation", "model", "id"],
+      "properties": {
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "operation": { "const": "delete" },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "transaction": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["commands"],
+          "properties": {
+            "version": { "const": 1 },
+            "command_id": { "$ref": "#/$defs/command_id" },
+            "operation": { "const": "transaction" },
+            "commands": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "items": { "$ref": "#/$defs/subcommand" }
+            },
+            "wait": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

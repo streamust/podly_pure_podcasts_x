@@ -1,4 +1,5 @@
 import datetime
+import gzip
 import hashlib
 import logging
 import secrets
@@ -65,6 +66,9 @@ logger = logging.getLogger("global_logger")
 
 feed_bp = Blueprint("feed", __name__)
 _MISSING = object()
+# Level 3 gets ~10x on feed XML at a third of level 6's CPU; zlib releases the
+# GIL while compressing.
+_FEED_GZIP_LEVEL = 3
 
 # Per-feed debounce so that bursty reader polls don't fan out into N background
 # refresh threads. The scheduled `refresh_all_feeds` job
@@ -541,9 +545,29 @@ def _client_has_current_version(
 def _apply_feed_response_headers(
     response: Response, etag: str, last_modified_aware: datetime.datetime
 ) -> None:
-    response.headers["ETag"] = f'"{etag}"'
+    # The gzip and identity bodies differ byte-for-byte, so a strong tag would
+    # wrongly claim they are interchangeable.
+    weak = "W/" if _client_accepts_gzip() else ""
+    response.headers["ETag"] = f'{weak}"{etag}"'
     response.headers["Last-Modified"] = http_date(last_modified_aware)
     response.headers["Cache-Control"] = "public, max-age=60"
+    response.vary.add("Accept-Encoding")
+
+
+def _client_accepts_gzip() -> bool:
+    return request.accept_encodings["gzip"] > 0
+
+
+def _feed_xml_response(xml_content: str | bytes) -> Response:
+    body = xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content
+    if _client_accepts_gzip():
+        response = make_response(gzip.compress(body, _FEED_GZIP_LEVEL, mtime=0))
+        response.headers["Content-Encoding"] = "gzip"
+    else:
+        response = make_response(body)
+    response.headers["Content-Type"] = "application/rss+xml"
+    response.vary.add("Accept-Encoding")
+    return response
 
 
 def _make_feed_304(etag: str, last_modified_aware: datetime.datetime) -> Response:
@@ -631,8 +655,7 @@ def get_feed(f_id: int) -> Response:
     response_last_modified = cached_last_modified or datetime.datetime.now(datetime.UTC)
     xml_content = generate_feed_xml(feed)
 
-    response = make_response(xml_content)
-    response.headers["Content-Type"] = "application/rss+xml"
+    response = _feed_xml_response(xml_content)
     _apply_feed_response_headers(response, cached_etag, response_last_modified)
     return response
 
@@ -849,8 +872,7 @@ def get_feed_by_alt_or_url(something_or_rss: str) -> Response:
     feed = Feed.query.filter_by(rss_url=something_or_rss).first()
     if feed:
         xml_content = generate_feed_xml(feed)
-        response = make_response(xml_content)
-        response.headers["Content-Type"] = "application/rss+xml"
+        response = _feed_xml_response(xml_content)
         return response
 
     return make_response(("Feed not found", 404))
@@ -999,8 +1021,7 @@ def get_user_aggregate_feed(user_id: int) -> Response:
         return _make_feed_304(etag, last_modified)
 
     xml_content = generate_aggregate_feed_xml(user)
-    response = make_response(xml_content)
-    response.headers["Content-Type"] = "application/rss+xml"
+    response = _feed_xml_response(xml_content)
     _apply_feed_response_headers(response, etag, last_modified)
     return response
 

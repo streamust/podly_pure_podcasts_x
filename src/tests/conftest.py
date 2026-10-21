@@ -3,6 +3,7 @@ Fixtures for pytest tests in the tests directory.
 """
 
 import logging
+import os
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -19,6 +20,14 @@ from podcast_processor.processing_status_manager import ProcessingStatusManager
 from podcast_processor.transcription_manager import TranscriptionManager
 from shared.config import Config
 from shared.test_utils import create_standard_test_config
+
+# Unit tests use the in-process Python writer; Rust-writer tests opt in via monkeypatch.
+os.environ.setdefault("PODLY_WRITER_BACKEND", "python")
+
+from tests.writer_parity_fixtures import (  # noqa: F401
+    writer_parity_pair,
+    writer_parity_snapshot,
+)
 
 
 @pytest.fixture

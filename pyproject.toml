@@ -23,7 +23,7 @@ dependencies = [
     "flask-migrate",
     "Flask-APScheduler",
     "ffmpeg-python",
-    "litellm>=1.102.0",
+    "litellm>=1.104.0",
     "groq",
     "flask-cors",
     "bcrypt",
@@ -46,6 +46,7 @@ dev = [
     "watchdog",
     "requests",
     "types-flask-cors",
+    "jsonschema",
 ]
 
 [tool.pytest.ini_options]

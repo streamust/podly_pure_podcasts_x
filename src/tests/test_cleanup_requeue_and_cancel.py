@@ -6,6 +6,7 @@ from app.writer.actions.cleanup import cleanup_missing_audio_paths_action
 from app.writer.actions.jobs import (
     cancel_existing_jobs_action,
     mark_cancelled_action,
+    update_job_status_action,
 )
 from app.writer.actions.processor import (
     delete_model_calls_for_post_by_model_name_action,
@@ -125,6 +126,32 @@ class TestMarkCancelledAction:
             assert job.status == "cancelled"
             assert job.step_name == "Cancelled by user request"
             assert job.error_message == "Cancelled by user request"
+
+    def test_late_worker_update_cannot_resurrect_cancelled_job(self, app):
+        with app.app_context():
+            job = ProcessingJob(post_guid="cancel-race", status="running")
+            db.session.add(job)
+            db.session.commit()
+
+            mark_cancelled_action({"job_id": job.id, "reason": "Stopped"})
+            cancelled_at = job.completed_at
+            result = update_job_status_action(
+                {
+                    "job_id": job.id,
+                    "status": "completed",
+                    "step": 4,
+                    "step_name": "Completed",
+                    "progress": 100.0,
+                }
+            )
+            db.session.commit()
+            db.session.refresh(job)
+
+            assert result == {"job_id": job.id, "status": "cancelled"}
+            assert job.status == "cancelled"
+            assert job.step_name == "Stopped"
+            assert job.error_message == "Stopped"
+            assert job.completed_at == cancelled_at
 
 
 class TestCancelExistingJobsCleansOrphanedModelCalls:

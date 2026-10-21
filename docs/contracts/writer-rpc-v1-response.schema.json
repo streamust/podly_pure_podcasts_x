@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podly.invalid/contracts/writer-rpc-v1-response.schema.json",
+  "title": "Podly writer RPC v1 response",
+  "oneOf": [
+    { "$ref": "#/$defs/accepted" },
+    { "$ref": "#/$defs/completed_success" },
+    { "$ref": "#/$defs/completed_failure" },
+    { "$ref": "#/$defs/rejected" },
+    { "$ref": "#/$defs/unknown" }
+  ],
+  "$defs": {
+    "command_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "outcome"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" },
+        "outcome": { "enum": ["not_admitted", "rolled_back", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "accepted": {
+      "type": "object",
+      "required": ["version", "command_id", "state", "admitted"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "state": { "const": "accepted" },
+        "admitted": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "completed_success": {
+      "type": "object",
+      "required": ["version", "command_id", "state", "success", "result"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "state": { "const": "completed" },
+        "success": { "const": true },
+        "result": true
+      },
+      "additionalProperties": false
+    },
+    "completed_failure": {
+      "type": "object",
+      "required": ["version", "command_id", "state", "success", "error"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "state": { "const": "completed" },
+        "success": { "const": false },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "additionalProperties": false
+    },
+    "rejected": {
+      "type": "object",
+      "required": ["version", "state", "admitted", "error"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "state": { "const": "rejected" },
+        "admitted": { "const": false },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "additionalProperties": false
+    },
+    "unknown": {
+      "type": "object",
+      "required": ["version", "command_id", "state", "admitted", "error"],
+      "properties": {
+        "version": { "const": 1 },
+        "command_id": { "$ref": "#/$defs/command_id" },
+        "state": { "const": "unknown" },
+        "admitted": { "const": true },
+        "error": {
+          "allOf": [
+            { "$ref": "#/$defs/error" },
+            { "properties": { "outcome": { "const": "unknown" } } }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

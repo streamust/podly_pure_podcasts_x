@@ -612,7 +612,7 @@ class PodcastProcessor:
 
         try:
             future.result(timeout=self._ina_timeout_sec() + 30)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.logger.warning("INA analysis failed: %s", exc, exc_info=True)
         finally:
             if executor is not None:
@@ -729,7 +729,7 @@ class PodcastProcessor:
                         },
                         wait=True,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:
                     self.logger.warning(
                         "[INA] Failed to mark model call %s as failed",
                         model_call_id,
@@ -2044,6 +2044,12 @@ class PodcastProcessor:
             update_data["unprocessed_audio_path"] = None
         if chapter_data is not None:
             update_data["chapter_data"] = chapter_data
+        # Feeds and stats read Post.duration as the processed runtime, and not
+        # every strategy cuts audio through AudioProcessor, which also stores it.
+        processed_duration_ms = get_audio_duration_ms(processed_audio_path)
+        if processed_duration_ms:
+            post.duration = processed_duration_ms / 1000.0
+            update_data["duration"] = post.duration
         result = writer_client.update(
             "Post",
             post.id,

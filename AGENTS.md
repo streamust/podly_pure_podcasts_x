@@ -1,14 +1,16 @@
 Project-specific rules:
 - Do not create Alembic migrations yourself; request the user to generate migrations after model changes using `./scripts/create_migration.sh "<message>"`.
-- Only use ./scripts/ci.sh to run tests & lints - do not attempt to run directly
+- The Rust writer (`rust/src/writer/`) uses hand-written SQL pinned to one Alembic revision. Any model or migration change must, in the same change, update the Rust writer's SQL (Python-side defaults, update allowlists), bump `EXPECTED_SCHEMA_REVISION`, and refresh the reviewed snapshot with `uv run python scripts/check_writer_schema.py --update`; CI's writer schema gate fails otherwise.
+- Only use ./scripts/ci.sh to run backend and Rust tests & lints - do not attempt to run them directly. For frontend changes, run `npm run lint` and `npm run build` in `frontend/`.
 - Expect ./scripts/ci.sh to modify files because it runs formatting and auto-fixes; review the working tree after running it.
 - use uv (not pipenv)
 - All database writes must go through the `writer` service. Do not use `db.session.commit()` directly in application code. Use `writer_client.action()` instead.
 - If you change backend behavior, including bug fixes, add or update test coverage for it.
 - For frontend work, use `npm` in `frontend/` and keep `package-lock.json` authoritative; do not switch package managers.
-- If you make any changes to backend code, make sure to run the `./scripts/ci.sh` to makes sure your code passes all the checks.
 - Make sure the schema matches between Front End, Python backend, and the rust sidecar
 - Anytime you add new .env flags add them to the example .env.example
 - When adding or porting a Rust sidecar path, never trust that the flag alone proves the path is hot. The wrappers in `src/shared/rust_sidecar.py` silently fall back to the Python implementation on any error (nonzero exit, bad payload, OSError) and only log it. Before benchmarking or claiming a win, confirm the Rust path actually executed — grep the container log for the matching `"falling back to Python"` line, or hit the wrapper directly in a Python shell and assert the return type, not just that the response shape is correct.
 - SQLite `INTEGER` columns can come back from rusqlite as `REAL` when SQLAlchemy stored a float into them (e.g. `Post.duration`). A naive `row.get::<_, i64>(idx)` will fail with a type mismatch and the sidecar will exit nonzero — triggering the silent fallback above. For any numeric column that can hold either shape, use a tolerant reader (see `get_duration_seconds` / `get_duration_f64` in `rust/src/main.rs`) that accepts both and normalizes, and preserve the original JSON shape (int stays int, real stays real) in the response.
 - Benchmarks for HTTP endpoints must run with concurrency, not sequential single-thread `curl` loops. Sequential runs miss the ptmalloc per-thread arena contention and waitress thread-pool fragmentation that are the actual targets of memory work. Use `scripts/bench_feed_posts.py` (or `ab`/`wrk`/`hey`) with `-c 8` or higher. A sequential bench that shows "no difference" between two paths is usually measuring Python-baseline overhead, not the paths.
+- When adding a feature to Python, add the equivalent to the Rust sidecar, and ask the user first if it is a large lift.
+- If the user reports problems, ask whether you should check `src/instance/logs/app.log`.

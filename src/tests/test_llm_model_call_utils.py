@@ -587,6 +587,34 @@ def test_tier_retry_falls_back_to_standard_on_exhaustion(
     assert "service_tier" not in args
 
 
+def test_tier_retry_retries_litellm_flex_capacity_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import litellm
+
+    capacity = litellm.RateLimitError(
+        message=(
+            "OpenAIException - Flex does not have sufficient resources "
+            "available to fulfill your request."
+        ),
+        llm_provider="openai",
+        model="gpt-6-luna",
+    )
+    fake = _FakeCompletion([capacity, "ok"])
+    _patch_litellm(monkeypatch, fake)
+
+    result = call_litellm_with_tier_retry(
+        {"model": "gpt-6-luna", "service_tier": "flex"},
+        config=SimpleNamespace(llm_service_tier="flex"),
+        logger=logging.getLogger("test"),
+        max_retries=3,
+        base_delay=0.0,
+        sleep=lambda _s: None,
+    )
+    assert result == "ok"
+    assert len(fake.calls) == 2
+
+
 def test_tier_retry_reraises_non_retryable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

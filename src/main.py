@@ -22,6 +22,12 @@ def main() -> None:
         host="0.0.0.0",
         port=port,
         threads=threads,
+        # Behind Docker's port proxy every peer is the bridge gateway, so trust
+        # only the scheme header: feed links must be https behind a TLS proxy.
+        # Trusting X-Forwarded-For would let any client spoof the address the
+        # login rate limiter keys on.
+        trusted_proxy="*",
+        trusted_proxy_headers={"x-forwarded-proto"},
     )
 
 

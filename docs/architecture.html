@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Podly Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f9fafb;
+      --color-ink:     #111827;
+      --color-muted:   #4b5563;
+      --color-accent:  #2563eb;
+      --font-sans:     ui-sans-serif, system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1280px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Podly</p>
+    <h1>Podly container architecture</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1280 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-title architecture-desc">
+        <title id="architecture-title">Podly container architecture</title>
+        <desc id="architecture-desc">Podcast apps call the Python web app, which hands hot read paths to the podly_tools Rust sidecar with a Python fallback, sends every database write through the podly_writer Rust writer (or the Python writer as rollback), and runs LiteLLM pricing in a disposable worker; sidecars read SQLite directly.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4b5563"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2563eb"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#15803d"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f9fafb"/>
+
+        <!-- Zone: container -->
+        <rect x="200" y="56" width="1040" height="600" rx="8" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.10)" stroke-width="0.8"/>
+        <rect x="216" y="60" width="216" height="12" rx="2" fill="#f9fafb"/>
+        <text x="324" y="69" fill="#6b7280" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.14em">PODLY CONTAINER · JEMALLOC + BURST TRIM</text>
+
+        <!-- Arrows (drawn before nodes) -->
+        <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" font-size="8" letter-spacing="0.06em" fill="#6b7280">
+          <!-- apps -> web -->
+          <line x1="168" y1="312" x2="248" y2="312" stroke="#15803d" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+          <rect x="192" y="292" width="32" height="12" rx="2" fill="#f9fafb"/>
+          <text x="208" y="301" text-anchor="middle">HTTP</text>
+
+          <!-- web -> podly_tools -->
+          <path d="M 456,268 H 520 Q 528,268 528,260 V 164 Q 528,156 536,156 H 592" fill="none" stroke="#4b5563" stroke-width="1.2" marker-end="url(#arrow)"/>
+          <rect x="464" y="204" width="56" height="12" rx="2" fill="#f9fafb"/>
+          <text x="492" y="213" text-anchor="middle">SUBPROCESS</text>
+
+          <!-- web -> python path (fallback) -->
+          <line x1="456" y1="312" x2="592" y2="312" stroke="#4b5563" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+          <rect x="544" y="292" width="44" height="12" rx="2" fill="#f9fafb"/>
+          <text x="566" y="301" text-anchor="middle">ON ERROR</text>
+
+          <!-- web -> podly_writer -->
+          <path d="M 456,340 H 520 Q 528,340 528,348 V 460 Q 528,468 536,468 H 592" fill="none" stroke="#4b5563" stroke-width="1.2" marker-end="url(#arrow)"/>
+          <rect x="536" y="396" width="52" height="12" rx="2" fill="#f9fafb"/>
+          <text x="562" y="405" text-anchor="middle">WRITE RPC</text>
+
+          <!-- web -> python writer (rollback) -->
+          <path d="M 456,356 H 500 Q 508,356 508,364 V 572 Q 508,580 516,580 H 592" fill="none" stroke="#4b5563" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+          <!-- web -> pricing worker -->
+          <line x1="352" y1="376" x2="352" y2="516" stroke="#4b5563" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+          <rect x="360" y="440" width="40" height="12" rx="2" fill="#f9fafb"/>
+          <text x="380" y="449" text-anchor="middle">PRICES</text>
+
+          <!-- podly_tools -> sqlite (read-only) -->
+          <path d="M 824,156 H 1060 Q 1068,156 1068,164 V 476" fill="none" stroke="#4b5563" stroke-width="1.2" marker-end="url(#arrow)"/>
+          <rect x="916" y="136" width="56" height="12" rx="2" fill="#f9fafb"/>
+          <text x="944" y="145" text-anchor="middle">READ ONLY</text>
+
+          <!-- podly_writer -> sqlite -->
+          <path d="M 824,468 H 888 Q 896,468 896,476 V 492 Q 896,500 904,500 H 968" fill="none" stroke="#2563eb" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+          <!-- python writer -> sqlite -->
+          <path d="M 824,580 H 908 Q 916,580 916,572 V 556 Q 916,548 924,548 H 968" fill="none" stroke="#4b5563" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        </g>
+
+        <!-- Nodes -->
+        <g font-family="ui-sans-serif, system-ui, sans-serif">
+          <!-- Podcast apps (input) -->
+          <rect x="32" y="276" width="136" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="32" y="276" width="136" height="72" rx="6" fill="rgba(75,85,99,0.10)" stroke="#6b7280" stroke-width="1"/>
+          <rect x="40" y="282" width="36" height="12" rx="2" fill="transparent" stroke="rgba(107,114,128,0.40)" stroke-width="0.8"/>
+          <text x="58" y="291" fill="#6b7280" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+          <text x="100" y="318" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">Podcast apps</text>
+          <text x="100" y="334" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">RSS · browser UI</text>
+
+          <!-- Python web (backend) -->
+          <rect x="248" y="248" width="208" height="128" rx="6" fill="#f9fafb"/>
+          <rect x="248" y="248" width="208" height="128" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+          <rect x="256" y="254" width="28" height="12" rx="2" fill="transparent" stroke="rgba(17,24,39,0.40)" stroke-width="0.8"/>
+          <text x="270" y="263" fill="rgba(17,24,39,0.80)" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">WEB</text>
+          <text x="352" y="310" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">Python web</text>
+          <text x="352" y="326" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">Waitress + Flask</text>
+          <text x="352" y="340" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">routes · auth · jobs</text>
+
+          <!-- podly_tools (focal) -->
+          <rect x="592" y="120" width="232" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="592" y="120" width="232" height="72" rx="6" fill="rgba(37,99,235,0.08)" stroke="#2563eb" stroke-width="1.2"/>
+          <rect x="600" y="126" width="28" height="12" rx="2" fill="transparent" stroke="rgba(37,99,235,0.40)" stroke-width="0.8"/>
+          <text x="614" y="135" fill="#2563eb" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">RUST</text>
+          <text x="708" y="158" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">podly_tools</text>
+          <text x="708" y="174" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">feed XML · episode lists · stats</text>
+
+          <!-- Python path (optional fallback) -->
+          <rect x="592" y="276" width="232" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="592" y="276" width="232" height="72" rx="6" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+          <rect x="600" y="282" width="28" height="12" rx="2" fill="transparent" stroke="rgba(17,24,39,0.30)" stroke-width="0.8"/>
+          <text x="614" y="291" fill="#6b7280" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">PY</text>
+          <text x="708" y="314" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">Python path</text>
+          <text x="708" y="330" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">sidecar error or flag off</text>
+
+          <!-- podly_writer (focal) -->
+          <rect x="592" y="432" width="232" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="592" y="432" width="232" height="72" rx="6" fill="rgba(37,99,235,0.08)" stroke="#2563eb" stroke-width="1.2"/>
+          <rect x="600" y="438" width="28" height="12" rx="2" fill="transparent" stroke="rgba(37,99,235,0.40)" stroke-width="0.8"/>
+          <text x="614" y="447" fill="#2563eb" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">RUST</text>
+          <text x="708" y="470" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">podly_writer</text>
+          <text x="708" y="486" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">every DB write · tcp :50001</text>
+
+          <!-- Python writer (optional rollback) -->
+          <rect x="592" y="544" width="232" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="592" y="544" width="232" height="72" rx="6" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+          <rect x="600" y="550" width="28" height="12" rx="2" fill="transparent" stroke="rgba(17,24,39,0.30)" stroke-width="0.8"/>
+          <text x="614" y="559" fill="#6b7280" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">PY</text>
+          <text x="708" y="582" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">Python writer</text>
+          <text x="708" y="598" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">PODLY_WRITER_BACKEND=python</text>
+
+          <!-- LiteLLM pricing (optional worker) -->
+          <rect x="248" y="516" width="208" height="72" rx="6" fill="#f9fafb"/>
+          <rect x="248" y="516" width="208" height="72" rx="6" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+          <rect x="256" y="522" width="40" height="12" rx="2" fill="transparent" stroke="rgba(17,24,39,0.30)" stroke-width="0.8"/>
+          <text x="276" y="531" fill="#6b7280" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">WORKER</text>
+          <text x="352" y="554" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">LiteLLM pricing</text>
+          <text x="352" y="570" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">short-lived subprocess</text>
+
+          <!-- SQLite (store) -->
+          <rect x="968" y="476" width="200" height="96" rx="6" fill="#f9fafb"/>
+          <rect x="968" y="476" width="200" height="96" rx="6" fill="rgba(17,24,39,0.05)" stroke="#4b5563" stroke-width="1"/>
+          <rect x="976" y="482" width="28" height="12" rx="2" fill="transparent" stroke="rgba(75,85,99,0.40)" stroke-width="0.8"/>
+          <text x="990" y="491" fill="#4b5563" font-size="7" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+          <text x="1068" y="526" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">SQLite</text>
+          <text x="1068" y="542" fill="#4b5563" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" text-anchor="middle">single writer · many readers</text>
+        </g>
+
+        <!-- Callout -->
+        <text x="968" y="608" fill="#4b5563" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Reads skip the writer;</text>
+        <text x="968" y="626" fill="#4b5563" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">every write goes through it.</text>
+
+        <!-- Legend -->
+        <line x1="32" y1="684" x2="1248" y2="684" stroke="rgba(17,24,39,0.10)" stroke-width="0.8"/>
+        <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" font-size="8" letter-spacing="0.08em" fill="#4b5563">
+          <text x="32" y="712" letter-spacing="0.14em">LEGEND</text>
+
+          <rect x="112" y="702" width="20" height="14" rx="3" fill="rgba(37,99,235,0.08)" stroke="#2563eb" stroke-width="1"/>
+          <text x="140" y="712">RUST PATH (NEW)</text>
+
+          <rect x="272" y="702" width="20" height="14" rx="3" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+          <text x="300" y="712">PYTHON SERVICE</text>
+
+          <rect x="432" y="702" width="20" height="14" rx="3" fill="rgba(17,24,39,0.05)" stroke="#4b5563" stroke-width="1"/>
+          <text x="460" y="712">DATA STORE</text>
+
+          <rect x="568" y="702" width="20" height="14" rx="3" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="596" y="712">FALLBACK / ROLLBACK / WORKER</text>
+
+          <line x1="784" y1="709" x2="816" y2="709" stroke="#15803d" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+          <text x="824" y="712">EXTERNAL HTTP</text>
+
+          <line x1="944" y1="709" x2="976" y2="709" stroke="#4b5563" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+          <text x="984" y="712">CONDITIONAL / ASYNC</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

@@ -2,7 +2,7 @@ import fcntl
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from logging.handlers import RotatingFileHandler
 
@@ -65,7 +65,7 @@ class MultiProcessRotatingFileHandler(RotatingFileHandler):
         self._lock_path = f"{self.baseFilename}.lock"
 
     @contextmanager
-    def _rotation_lock(self) -> Iterator[None]:
+    def _rotation_lock(self) -> Generator[None]:
         """Hold an exclusive inter-process lock for the duration of a rotation."""
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         try:

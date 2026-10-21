@@ -31,7 +31,6 @@ from app.llm_pricing import model_rates
 from app.model_call_token_backfill import backfill_model_call_token_usage
 from app.models import (
     Feed,
-    Identification,
     ModelCall,
     Post,
     ProcessingJob,
@@ -97,27 +96,18 @@ def _latest_completed_jobs_by_guid(
     return job_by_guid
 
 
-def _ad_time_by_post_id(post_ids: list[int]) -> dict[int, float]:
+def _transcript_end_by_post_id(post_ids: list[int]) -> dict[int, float]:
     if not post_ids:
         return {}
-    ad_segment_subq = (
-        db.session.query(Identification.transcript_segment_id)
-        .filter(Identification.label == "ad")
-        .scalar_subquery()
-    )
-    ad_time_rows = (
+    rows = (
         db.session.query(
-            TranscriptSegment.post_id,
-            db.func.sum(TranscriptSegment.end_time - TranscriptSegment.start_time),
+            TranscriptSegment.post_id, db.func.max(TranscriptSegment.end_time)
         )
-        .filter(
-            TranscriptSegment.post_id.in_(post_ids),
-            TranscriptSegment.id.in_(ad_segment_subq),
-        )
+        .filter(TranscriptSegment.post_id.in_(post_ids))
         .group_by(TranscriptSegment.post_id)
         .all()
     )
-    return {row[0]: float(row[1]) for row in ad_time_rows}
+    return {post_id: float(end_time) for post_id, end_time in rows}
 
 
 def _model_calls_by_post_id(post_ids: list[int]) -> dict[int, list[ModelCall]]:
@@ -281,10 +271,12 @@ def api_admin_costs() -> flask.Response:
     )
     post_map: dict[str, Post] = {p.guid: p for p in posts_in_month}
 
-    # Batch-query ad time per post so we can reconstruct original duration.
-    # post.duration is the cut (ad-removed) length; original = cut + ad_time.
+    # post.duration is the processed (ad-removed) length. The transcript is of
+    # the unprocessed audio, so its last segment end is a lower bound on the
+    # original length that does not depend on which ad labels were cut; it misses
+    # any untranscribed tail after the last segment.
     post_ids = [p.id for p in posts_in_month]
-    ad_time_by_post_id = _ad_time_by_post_id(post_ids)
+    transcript_end_by_post_id = _transcript_end_by_post_id(post_ids)
     model_calls_by_post_id = _model_calls_by_post_id(post_ids)
 
     # --- Per-user monthly cost breakdown ---
@@ -303,9 +295,9 @@ def api_admin_costs() -> flask.Response:
         post = post_map.get(guid)
         if not post:
             continue
-        cut_duration = float(post.duration or 0)
-        ad_time = ad_time_by_post_id.get(post.id, 0.0)
-        duration = cut_duration + ad_time  # original duration = cut + removed ad time
+        duration = max(
+            float(post.duration or 0), transcript_end_by_post_id.get(post.id, 0.0)
+        )
         feed_id = post.feed_id
         subscriber_count = feed_subscriber_count.get(feed_id, 0)
         duration_hours = duration / 3600.0 if duration > 0 else 0.0

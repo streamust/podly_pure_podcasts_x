@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import subprocess
 import sys
 from typing import Any
 
@@ -8,13 +10,14 @@ from flask import Blueprint, jsonify, request
 
 from app.auth.guards import require_admin
 from app.config_store import (
+    apply_app_scheduler_side_effects,
     hydrate_runtime_config_inplace,
     read_combined,
     to_pydantic_config,
 )
+from app.pricing_client import helper_env
 from app.runtime_config import config as runtime_config
 from app.writer.client import writer_client
-from shared.llm_utils import model_uses_max_completion_tokens
 
 logger = logging.getLogger("global_logger")
 
@@ -587,11 +590,27 @@ def api_put_config() -> flask.Response:
         )
 
     try:
-        result = writer_client.action(
-            "update_combined_config",
-            {"payload": payload},
-            wait=True,
-        )
+        previous_app_settings = dict(read_combined().get("app", {}))
+        try:
+            result = writer_client.action(
+                "update_combined_config",
+                {"payload": payload},
+                wait=True,
+            )
+        finally:
+            # The writer contract deliberately commits config sections one at a
+            # time. Reconcile this process even when a later section fails.
+            try:
+                current_app_settings = dict(read_combined().get("app", {}))
+                apply_app_scheduler_side_effects(
+                    previous_app_settings,
+                    current_app_settings,
+                )
+            except Exception as scheduler_err:  # noqa: BLE001
+                logger.warning(
+                    "Post-update scheduler reconciliation failed: %s",
+                    scheduler_err,
+                )
         if not result or not result.success:
             raise RuntimeError(getattr(result, "error", "Writer update failed"))
         data = result.data or {}
@@ -682,33 +701,29 @@ def api_test_llm() -> flask.Response:
             jsonify({"ok": False, "error": "Missing llm_api_key"}), 400
         )
 
+    # LiteLLM pulls in ~160 MiB of SDK modules; keep them out of the web process.
     try:
-        import litellm
+        completed = subprocess.run(
+            [sys.executable, "-m", "app.llm_probe_worker"],
+            input=json.dumps(
+                {
+                    "api_key": api_key,
+                    "model": model,
+                    "base_url": base_url,
+                    "timeout": timeout,
+                }
+            ),
+            capture_output=True,
+            text=True,
+            timeout=timeout + 30,
+            check=True,
+            env=helper_env(),
+        )
+        probe = json.loads(completed.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        probe = {"ok": False, "error": f"LLM probe helper failed: {e}"}
 
-        # Configure litellm for this probe
-        litellm.api_key = api_key
-        if base_url:
-            litellm.api_base = base_url
-
-        # Minimal completion to validate connectivity and credentials
-        messages = [
-            {"role": "system", "content": "You are a healthcheck probe."},
-            {"role": "user", "content": "ping"},
-        ]
-
-        completion_kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "timeout": timeout,
-        }
-
-        if model_uses_max_completion_tokens(model):
-            completion_kwargs["max_completion_tokens"] = 1
-        else:
-            completion_kwargs["max_tokens"] = 1
-
-        _ = litellm.completion(**completion_kwargs)
-
+    if probe.get("ok") is True:
         return flask.jsonify(
             {
                 "ok": True,
@@ -717,9 +732,10 @@ def api_test_llm() -> flask.Response:
                 "base_url": base_url,
             }
         )
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"LLM connection test failed: {e}")
-        return flask.make_response(jsonify({"ok": False, "error": str(e)}), 400)
+    logger.error(f"LLM connection test failed: {probe.get('error')}")
+    return flask.make_response(
+        jsonify({"ok": False, "error": str(probe.get("error"))}), 400
+    )
 
 
 def _make_error_response(error_msg: str, status_code: int = 400) -> flask.Response:

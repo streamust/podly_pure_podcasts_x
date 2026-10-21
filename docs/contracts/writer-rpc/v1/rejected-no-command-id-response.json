@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "state": "rejected",
+  "admitted": false,
+  "error": {
+    "code": "unauthorized",
+    "message": "authorization required",
+    "retryable": false,
+    "outcome": "not_admitted"
+  }
+}

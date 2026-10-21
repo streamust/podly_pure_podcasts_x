@@ -174,9 +174,11 @@ def _is_tier_retryable(exc: Exception) -> bool:
         return True
     if "429" in err or "rate limit" in err or "resource_exhausted" in err:
         return True
-    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-    if code in (429, 503):
-        return True
+    # LiteLLM sets `code` to a string ("429") and `status_code` to an int.
+    for attr in ("status_code", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, (int, str)) and str(value) in ("429", "503"):
+            return True
     return False
 
 

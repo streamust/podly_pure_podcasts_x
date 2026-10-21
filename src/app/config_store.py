@@ -75,9 +75,9 @@ def _ensure_row(model: type, defaults: dict[str, Any]) -> Any:
         except Exception:  # noqa: BLE001
             role = None
 
-        # Web app should be read-only; only the writer process is allowed to create
-        # missing settings rows.
-        if role == "writer":
+        # Web and processing apps are read-only. The runtime writer and exclusive
+        # one-shot bootstrap may create missing singleton settings rows.
+        if role in {"writer", "bootstrap"}:
             row = model(id=1, **defaults)
             db.session.add(row)
             safe_commit(
@@ -507,6 +507,20 @@ def _maybe_disable_cleanup_job(
                 scheduler.remove_job(job_id)
             except Exception:  # noqa: BLE001
                 pass
+
+
+def apply_app_scheduler_side_effects(
+    previous: dict[str, Any], current: dict[str, Any]
+) -> None:
+    """Reconcile scheduler state in the process that serves config updates."""
+    _maybe_reschedule_refresh_job(
+        previous.get("background_update_interval_minute"),
+        current.get("background_update_interval_minute"),
+    )
+    _maybe_disable_cleanup_job(
+        previous.get("post_cleanup_retention_days"),
+        current.get("post_cleanup_retention_days"),
+    )
 
 
 def update_combined(payload: dict[str, Any]) -> dict[str, Any]:

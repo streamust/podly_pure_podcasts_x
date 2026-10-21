@@ -3,9 +3,20 @@ import subprocess
 from datetime import datetime
 from typing import Any
 
+import pytest
+
 from app.extensions import db
 from app.model_call_token_backfill import backfill_model_call_token_usage
-from app.models import Feed, ModelCall, Post, ProcessingJob, User, UserFeed
+from app.models import (
+    Feed,
+    Identification,
+    ModelCall,
+    Post,
+    ProcessingJob,
+    TranscriptSegment,
+    User,
+    UserFeed,
+)
 from app.routes import cost_routes
 from app.routes.cost_routes import _model_call_cost, costs_bp
 
@@ -514,3 +525,88 @@ def test_backfill_token_usage_endpoint_validates_limit(
     )
 
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    ("duration", "ad_confidences"),
+    [
+        (3000, [0.95]),  # ads cut: processed length excludes them
+        (3600, [0.2]),  # low-confidence ad was never cut
+        (3000, [0.95, 0.9]),  # two model calls flagged the same segment
+        (None, []),  # duration cleared after processing
+    ],
+)
+def test_admin_costs_measure_original_length_from_transcript(
+    app: Any, monkeypatch: Any, duration: int | None, ad_confidences: list[float]
+) -> None:
+    app.register_blueprint(costs_bp)
+    monkeypatch.setattr(cost_routes, "require_admin", lambda _action: (None, None))
+    monkeypatch.setattr(
+        cost_routes,
+        "read_combined",
+        lambda: {"app": {"whisper_cost_rate_per_hour": 0.04}},
+    )
+    monkeypatch.setattr(cost_routes, "try_render_admin_costs", lambda **_: None)
+
+    with app.app_context():
+        feed = Feed(title="Cost Feed", rss_url="https://example.com/feed.xml")
+        db.session.add(feed)
+        db.session.flush()
+        post = Post(
+            feed_id=feed.id,
+            guid="cost-guid",
+            download_url="https://example.com/audio.mp3",
+            title="Cost Episode",
+            duration=duration,
+        )
+        db.session.add(post)
+        db.session.flush()
+        db.session.add(
+            ProcessingJob(
+                post_guid=post.guid,
+                status="completed",
+                completed_at=datetime(2026, 5, 15, 12, 0, 0),
+            )
+        )
+        ad = TranscriptSegment(
+            post_id=post.id, sequence_num=0, start_time=0, end_time=600, text="Ad"
+        )
+        content = TranscriptSegment(
+            post_id=post.id, sequence_num=1, start_time=600, end_time=3600, text="Show"
+        )
+        whisper = ModelCall(
+            post_id=post.id,
+            first_segment_sequence_num=0,
+            last_segment_sequence_num=-1,
+            model_name="whisper-large-v3-turbo",
+            prompt="Whisper transcription job",
+            status="success",
+        )
+        db.session.add_all([ad, content, whisper])
+        db.session.flush()
+        for index, confidence in enumerate(ad_confidences):
+            call = ModelCall(
+                post_id=post.id,
+                first_segment_sequence_num=0,
+                last_segment_sequence_num=1,
+                model_name=f"classifier-{index}",
+                prompt="classify",
+                status="success",
+            )
+            db.session.add(call)
+            db.session.flush()
+            db.session.add(
+                Identification(
+                    transcript_segment_id=ad.id,
+                    model_call_id=call.id,
+                    label="ad",
+                    confidence=confidence,
+                )
+            )
+        db.session.commit()
+
+        response = app.test_client().get("/api/admin/costs?year=2026&month=5")
+
+    payload = response.get_json()
+    assert payload["total_audio_hours"] == 1.0
+    assert payload["total_whisper_cost"] == 0.04

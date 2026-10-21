@@ -2421,3 +2421,99 @@ def test_post_stats_includes_debug_info_when_enabled(app, tmp_path):
         c["path"] == str(processed_audio.resolve()) and c["exists"] is True
         for c in candidates
     )
+
+
+def _stats_post_with_transcript(duration, segments, ad_sequence_nums=()):
+    feed = Feed(title="Stats Feed", rss_url="https://example.com/stats.xml")
+    db.session.add(feed)
+    db.session.flush()
+    post = Post(
+        feed_id=feed.id,
+        guid="stats-transcript-guid",
+        download_url="https://example.com/audio.mp3",
+        title="Stats Transcript Episode",
+        duration=duration,
+        whitelisted=True,
+    )
+    db.session.add(post)
+    db.session.flush()
+    rows = [
+        TranscriptSegment(
+            post_id=post.id, sequence_num=i, start_time=start, end_time=end, text="t"
+        )
+        for i, (start, end) in enumerate(segments)
+    ]
+    whisper = ModelCall(
+        post_id=post.id,
+        first_segment_sequence_num=0,
+        last_segment_sequence_num=-1,
+        model_name="whisper-large-v3-turbo",
+        prompt="Whisper transcription job",
+        status="success",
+    )
+    classifier = ModelCall(
+        post_id=post.id,
+        first_segment_sequence_num=0,
+        last_segment_sequence_num=len(segments) - 1,
+        model_name="gpt-4.1-mini",
+        prompt="Classify transcript segment",
+        status="success",
+    )
+    db.session.add_all([*rows, whisper, classifier])
+    db.session.flush()
+    db.session.add_all(
+        Identification(
+            transcript_segment_id=rows[i].id,
+            model_call_id=classifier.id,
+            label="ad",
+            confidence=0.99,
+        )
+        for i in ad_sequence_nums
+    )
+    db.session.commit()
+    return post.guid
+
+
+def _admin_stats(app, guid):
+    @app.before_request
+    def _set_admin_user() -> None:
+        g.current_user = SimpleNamespace(id=1, role="admin")
+
+    db.session.add(User(id=1, username="admin", password_hash="hash", role="admin"))
+    db.session.commit()
+    with (
+        mock.patch("app.routes.post_routes.try_render_post_stats", return_value=None),
+        mock.patch(
+            "app.config_store.read_combined",
+            return_value={"app": {"whisper_cost_rate_per_hour": 0.04}},
+        ),
+    ):
+        response = app.test_client().get(f"/api/posts/{guid}/stats")
+    assert response.status_code == 200
+    return response.get_json()
+
+
+def test_post_stats_bill_whisper_on_original_length(app):
+    app.testing = True
+    app.register_blueprint(post_bp)
+    guid = _stats_post_with_transcript(
+        3000, [(0.0, 600.0), (600.0, 3600.0)], ad_sequence_nums=[0]
+    )
+
+    payload = _admin_stats(app, guid)
+
+    assert payload["processing_stats"]["original_duration_seconds"] == 3600.0
+    calls = {c["model_name"]: c for c in payload["model_calls"]}
+    assert calls["whisper-large-v3-turbo"]["estimated_cost_usd"] == 0.04
+
+
+def test_post_stats_original_length_is_at_least_transcript_end(app):
+    app.testing = True
+    app.register_blueprint(post_bp)
+    # Current settings find no ads, but the processed file is shorter than
+    # the transcribed original.
+    guid = _stats_post_with_transcript(3000, [(0.0, 600.0), (600.0, 3600.0)])
+
+    payload = _admin_stats(app, guid)
+
+    assert payload["processing_stats"]["original_duration_seconds"] == 3600.0

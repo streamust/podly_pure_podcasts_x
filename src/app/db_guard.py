@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -48,7 +48,7 @@ def reset_session(
 @contextmanager
 def db_guard(
     context: str, session: SessionType, logger: logging.Logger
-) -> Iterator[None]:
+) -> Generator[None]:
     """
     Guard a block of DB work so lock/rollback errors always clean the session
     before propagating.

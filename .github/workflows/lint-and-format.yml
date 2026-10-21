@@ -11,16 +11,17 @@ on:
 jobs:
   lint-format-test:
     runs-on: ubuntu-latest
+    env:
+      # uv's managed Python bundles a current SQLite. The runner's system SQLite
+      # (3.45) reports false NOT NULL violations from PRAGMA integrity_check for
+      # rows that predate an ADD COLUMN ... NOT NULL DEFAULT.
+      UV_PYTHON: "3.14"
+      UV_PYTHON_PREFERENCE: only-managed
+      PODLY_RUST_WRITER_BIN: ${{ github.workspace }}/rust/target/release/podly_writer
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        id: python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
 
       - name: Install ffmpeg
         run: sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ffmpeg
@@ -30,6 +31,18 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # Writer parity and Rust/Python parity tests run against these binaries.
+      - name: Build Rust binaries
+        run: cargo build --release --locked --bins --manifest-path rust/Cargo.toml
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev
@@ -45,3 +58,9 @@ jobs:
 
       - name: Run pytest
         run: uv run pytest --disable-warnings
+
+      - name: Check writer registry parity
+        run: uv run python scripts/check_writer_registry.py
+
+      - name: Check writer schema snapshot
+        run: uv run python scripts/check_writer_schema.py

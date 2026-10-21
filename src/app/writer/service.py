@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -50,7 +51,7 @@ def _start_idle_trim_thread(activity_counter: list[int]) -> threading.Thread | N
             last_count = current
             try:
                 release_memory_to_os("writer idle tick", logger)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("writer idle trim failed", exc_info=True)
 
     thread = threading.Thread(target=_loop, name="writer-idle-trim", daemon=True)
@@ -78,6 +79,45 @@ DEFERRED_MEMORY_TRIM_ACTIONS = {
     "touch_feed_access_token",
     "update_user_last_active",
 }
+
+
+def _writer_timing_enabled() -> bool:
+    return os.environ.get("PODLY_WRITER_TIMING_LOG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _writer_timing_payload(
+    cmd: WriteCommand,
+    *,
+    dequeued_monotonic_ns: int,
+    finished_monotonic_ns: int,
+    success: bool,
+) -> dict[str, object]:
+    enqueued_ns = cmd.enqueued_monotonic_ns
+    queue_ms = (
+        max(0, dequeued_monotonic_ns - enqueued_ns) / 1_000_000
+        if enqueued_ns is not None
+        else None
+    )
+    total_ms = (
+        max(0, finished_monotonic_ns - enqueued_ns) / 1_000_000
+        if enqueued_ns is not None
+        else None
+    )
+    return {
+        "command_id": cmd.id,
+        "operation": cmd.type.value,
+        "action": _action_name(cmd),
+        "queue_ms": queue_ms,
+        "execution_ms": max(0, finished_monotonic_ns - dequeued_monotonic_ns)
+        / 1_000_000,
+        "total_ms": total_ms,
+        "success": success,
+    }
 
 
 def _action_name(cmd: object) -> str | None:
@@ -140,8 +180,10 @@ def run_writer_service() -> None:
         cmd = None
         result = None
         trim_context = None
+        dequeued_monotonic_ns = None
         try:
             cmd = queue.get()
+            dequeued_monotonic_ns = time.monotonic_ns()
             activity_counter[0] += 1
             trim_context = _memory_trim_context_for_command(cmd)
 
@@ -162,6 +204,20 @@ def run_writer_service() -> None:
                 )
 
             result = executor.process_command(cmd)
+
+            if _writer_timing_enabled():
+                logger.info(
+                    "[WRITER_TIMING] %s",
+                    json.dumps(
+                        _writer_timing_payload(
+                            cmd,
+                            dequeued_monotonic_ns=dequeued_monotonic_ns,
+                            finished_monotonic_ns=time.monotonic_ns(),
+                            success=bool(result and result.success),
+                        ),
+                        separators=(",", ":"),
+                    ),
+                )
 
             # Only log finished/reply if not polling or if polling actually did something
             if not is_polling or (result and result.data):
