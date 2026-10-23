@@ -29,6 +29,7 @@ dependencies = [
     "bcrypt",
     "stripe",
     "mutagen",
+    "numpy",
     "apprise>=1.13.1",
 ]
 
