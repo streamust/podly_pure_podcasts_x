@@ -1980,7 +1980,9 @@ class AdClassifier:
         if refined_boundaries and env_flag_enabled(
             "PODLY_STING_ANCHOR_ENABLED", default=True
         ):
-            refined_boundaries = self._apply_sting_anchor(post, refined_boundaries)
+            refined_boundaries = self._apply_sting_anchor(
+                post, refined_boundaries, transcript_segments
+            )
 
         # Store latest refined boundaries on the post so audio processing can cut
         # using refined timestamps (including word-level refined start times).
@@ -2014,6 +2016,7 @@ class AdClassifier:
         self,
         post: Post,
         refined_boundaries: list[dict[str, Any]],
+        transcript_segments: list | None = None,
     ) -> list[dict[str, Any]]:
         """Run the sting anchor over a post's refined boundaries.
 
@@ -2035,8 +2038,44 @@ class AdClassifier:
                 config.template_path,
                 floor=min(PEAK_FLOOR, config.threshold),
             )
+            # Segment data for the START role's optional early-cut
+            # check (transcript labels + INA speech spans). Missing
+            # data only disables the early cut, never the anchor.
+            tsegs: list[tuple[float, float, str]] | None = None
+            if transcript_segments:
+                label_by_seg_id = {
+                    getattr(ident, "transcript_segment_id", None): ident.label
+                    for ident in self.db_session.query(Identification)
+                    .join(TranscriptSegment)
+                    .filter(TranscriptSegment.post_id == post.id)
+                    .all()
+                }
+                tsegs = [
+                    (
+                        float(getattr(s, "start_time", 0.0)),
+                        float(getattr(s, "end_time", 0.0)),
+                        str(label_by_seg_id.get(getattr(s, "id", None), "none")),
+                    )
+                    for s in transcript_segments
+                ]
+            ina_speech: list[tuple[float, float]] | None = None
+            try:
+                ina_rows = (
+                    self.db_session.query(AudioSegment)
+                    .filter(
+                        AudioSegment.post_id == post.id,
+                        AudioSegment.label == "speech",
+                    )
+                    .order_by(AudioSegment.start_time.asc())
+                    .all()
+                )
+                ina_speech = [
+                    (float(r.start_time), float(r.end_time)) for r in ina_rows
+                ]
+            except Exception:  # noqa: BLE001
+                ina_speech = None
             adjusted, adjustments = apply_sting_anchors(
-                refined_boundaries, config, peaks
+                refined_boundaries, config, peaks, tsegs, ina_speech
             )
         except Exception as exc:  # noqa: BLE001
             self.logger.warning(
@@ -2048,7 +2087,7 @@ class AdClassifier:
         for adj in adjustments:
             self.logger.info(
                 "Sting anchor: post %s block %d %s %.2f -> %.2f "
-                "(score %.2f, onset %.2f)",
+                "(score %.2f, onset %.2f%s)",
                 post.id,
                 adj.block_index,
                 adj.edge,
@@ -2056,6 +2095,7 @@ class AdClassifier:
                 adj.adjusted,
                 adj.score,
                 adj.onset,
+                ", early-cut" if adj.early else "",
             )
         return adjusted
 

@@ -344,3 +344,135 @@ def test_load_sting_configs_missing_offset_is_an_error(tmp_path) -> None:
     )
     with pytest.raises((KeyError, ValueError)):
         load_sting_configs(str(config_path))
+
+
+# Odd Lots with the early cut: skip the motif when the span between
+# the early and standard targets holds no non-ad speech.
+OL_EARLY_CONFIG = FeedStingConfig(
+    template_path="odd_lots_motif.wav",
+    threshold=0.7,
+    start_rule=StartAnchorRule(
+        offset=13.6,
+        window_before=90.0,
+        window_after=10.0,
+        min_move=5.0,
+        require_positive_break_start=True,
+        early_offset=1.0,
+    ),
+)
+
+
+def test_early_cut_fires_when_span_clear() -> None:
+    # Refined start 120.0, motif onset 100.0: standard target 113.6
+    # (move 6.4, past the 5s dead zone). Span (101.0, 113.6) holds no
+    # speech at all, so the early target 101.0 wins.
+    boundaries = [boundary(120.0, 200.0)]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)], [], []
+    )
+    assert len(adjustments) == 1
+    adj = adjustments[0]
+    assert adj.early is True
+    assert result[0]["refined_start"] == pytest.approx(101.0)
+    assert result[0]["sting_anchor"] == {
+        "role": "start",
+        "score": 1.0,
+        "onset": 100.0,
+        "original_start": 120.0,
+        "early": True,
+    }
+
+
+def test_early_cut_blocked_by_content_speech() -> None:
+    # Unlabeled speech in the span: keep the standard target.
+    boundaries = [boundary(120.0, 200.0)]
+    tsegs = [(105.0, 110.0, "none")]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)], tsegs, []
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is False
+    assert result[0]["refined_start"] == pytest.approx(113.6)
+    assert "early" not in result[0]["sting_anchor"]
+
+
+def test_early_cut_allowed_with_ad_labeled_speech() -> None:
+    # The only speech in the span is ad-labeled: cutting it is the
+    # point, so the early target applies.
+    boundaries = [boundary(120.0, 200.0)]
+    tsegs = [(102.0, 112.0, "ad")]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)], tsegs, []
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is True
+    assert result[0]["refined_start"] == pytest.approx(101.0)
+
+
+def test_early_cut_blocked_by_untranscribed_ina_speech() -> None:
+    # No transcript coverage in the span but INA hears speech: unknown
+    # talk, not safe to cut.
+    boundaries = [boundary(120.0, 200.0)]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)], [], [(105.0, 110.0)]
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is False
+    assert result[0]["refined_start"] == pytest.approx(113.6)
+
+
+def test_early_cut_allows_ina_speech_inside_ad_coverage() -> None:
+    # INA speech that sits inside ad-labeled transcript coverage is the
+    # same ad speech: the early target applies.
+    boundaries = [boundary(120.0, 200.0)]
+    tsegs = [(100.0, 115.0, "ad")]
+    ina = [(105.0, 120.0)]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)], tsegs, ina
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is True
+    assert result[0]["refined_start"] == pytest.approx(101.0)
+
+
+def test_early_cut_fails_safe_without_segment_data() -> None:
+    # early_offset configured but no segment data available: the
+    # standard target applies, never a blind early cut.
+    boundaries = [boundary(120.0, 200.0)]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_EARLY_CONFIG, [peak(100.0, 1.0)]
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is False
+    assert result[0]["refined_start"] == pytest.approx(113.6)
+
+
+def test_no_early_offset_is_parity() -> None:
+    # Without early_offset (e.g. the ADB configs), passing segment data
+    # changes nothing: stock behavior, early never set.
+    boundaries = [boundary(120.0, 200.0)]
+    result, adjustments = apply_sting_anchors(
+        boundaries, OL_CONFIG, [peak(100.0, 1.0)], [], []
+    )
+    assert len(adjustments) == 1
+    assert adjustments[0].early is False
+    assert result[0]["refined_start"] == pytest.approx(113.6)
+    assert "early" not in result[0]["sting_anchor"]
+
+
+def test_load_sting_configs_parses_early_offset(tmp_path) -> None:
+    cfg = {
+        "feeds": {
+            "1": {
+                "template": "motif.wav",
+                "threshold": 0.7,
+                "start": {"offset": 13.6, "early_offset": 1.0},
+            }
+        }
+    }
+    path = tmp_path / "sting_config.json"
+    path.write_text(json.dumps(cfg))
+    (tmp_path / "motif.wav").write_bytes(b"RIFF")
+    configs = load_sting_configs(str(path))
+    assert configs[1].start_rule is not None
+    assert configs[1].start_rule.early_offset == 1.0

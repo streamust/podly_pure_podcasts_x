@@ -82,7 +82,15 @@ class StingPeak:
 
 @dataclass(frozen=True)
 class StartAnchorRule:
-    """START-edge anchoring parameters (backtest defaults)."""
+    """START-edge anchoring parameters (backtest defaults).
+
+    ``early_offset`` is opt-in: when set, and the span between the
+    early target (onset + early_offset) and the standard target
+    (onset + offset) holds no non-ad speech, the anchor targets the
+    early point instead — skipping sting music without risking
+    content. Needs transcript/INA segment data; without it the
+    standard target applies (fail-safe).
+    """
 
     offset: float
     window_before: float = 45.0
@@ -90,6 +98,7 @@ class StartAnchorRule:
     min_move: float = 1.0
     regime_gate: tuple[float, float] | None = None
     require_positive_break_start: bool = False
+    early_offset: float | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +134,7 @@ class StingAdjustment:
     onset: float
     original: float
     adjusted: float
+    early: bool = False  # START move used the early_offset target
 
 
 def _group_break_indices(boundaries: list[dict[str, Any]]) -> list[list[int]]:
@@ -156,11 +166,45 @@ def _nearest_peak(
     return min(candidates, key=lambda p: abs(p.time - target))
 
 
+def _span_clear_for_early_cut(
+    lo: float,
+    hi: float,
+    transcript_segments: list[tuple[float, float, str]],
+    ina_speech: list[tuple[float, float]] | None,
+) -> bool:
+    """Whether cutting at ``lo`` is safe: the span (lo, hi) holds no
+    non-ad speech.
+
+    Transcript labels decide ad-vs-content. INA speech is the backstop
+    for untranscribed regions: INA speech with no transcript coverage
+    at all is treated as unknown talk (not safe), while INA speech
+    inside ad-labeled transcript coverage is the same ad speech. With
+    no INA data the transcript check stands alone; with no transcript
+    data the span is never clear — the early cut fails safe.
+    """
+    ad_spans: list[tuple[float, float]] = []
+    for start, end, label in transcript_segments:
+        if end <= lo or start >= hi:
+            continue
+        if (label or "none") != "ad":
+            return False
+        ad_spans.append((start, end))
+    for start, end in ina_speech or ():
+        cs, ce = max(start, lo), min(end, hi)
+        if ce <= cs:
+            continue
+        if not any(a <= cs and ce <= b for a, b in ad_spans):
+            return False
+    return True
+
+
 def _propose_start_adjustment(
     rule: StartAnchorRule,
     peaks: list[StingPeak],
     block_index: int,
     break_start: float,
+    transcript_segments: list[tuple[float, float, str]] | None = None,
+    ina_speech: list[tuple[float, float]] | None = None,
 ) -> StingAdjustment | None:
     if rule.require_positive_break_start and break_start <= 0.0:
         return None
@@ -173,6 +217,20 @@ def _propose_start_adjustment(
     if peak is None:
         return None
     target = peak.time + rule.offset
+    early = False
+    if (
+        rule.early_offset is not None
+        and transcript_segments is not None
+        and peak.time + rule.early_offset < target
+        and _span_clear_for_early_cut(
+            peak.time + rule.early_offset,
+            target,
+            transcript_segments,
+            ina_speech,
+        )
+    ):
+        target = peak.time + rule.early_offset
+        early = True
     move = abs(target - break_start)
     in_regime_band = (
         rule.regime_gate is not None
@@ -187,6 +245,7 @@ def _propose_start_adjustment(
         onset=peak.time,
         original=break_start,
         adjusted=target,
+        early=early,
     )
 
 
@@ -225,13 +284,22 @@ def _propose_for_break(
     peaks: list[StingPeak],
     boundaries: list[dict[str, Any]],
     group: list[int],
+    transcript_segments: list[tuple[float, float, str]] | None = None,
+    ina_speech: list[tuple[float, float]] | None = None,
 ) -> list[StingAdjustment]:
     first, last = group[0], group[-1]
     break_start = float(boundaries[first]["refined_start"])
     break_end = float(boundaries[last]["refined_end"])
     proposals: list[StingAdjustment] = []
     if config.start_rule is not None:
-        adj = _propose_start_adjustment(config.start_rule, peaks, first, break_start)
+        adj = _propose_start_adjustment(
+            config.start_rule,
+            peaks,
+            first,
+            break_start,
+            transcript_segments,
+            ina_speech,
+        )
         if adj is not None:
             proposals.append(adj)
     if config.end_rule is not None:
@@ -257,6 +325,8 @@ def _record_adjustments(
                 "onset": adj.onset,
                 "original_start": adj.original,
             }
+            if adj.early:
+                audit["early"] = True
         else:
             boundary["refined_end"] = adj.adjusted
             audit = {
@@ -278,16 +348,22 @@ def apply_sting_anchors(
     boundaries: list[dict[str, Any]],
     config: FeedStingConfig | None,
     peaks: list[StingPeak],
+    transcript_segments: list[tuple[float, float, str]] | None = None,
+    ina_speech: list[tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[StingAdjustment]]:
     """Apply the sting anchor policy to a post's refined boundaries.
 
     ``boundaries`` are the dicts about to be stored on the post (each
     has ``refined_start`` / ``refined_end``); ``peaks`` are the feed
-    template's detections on the episode's original audio. Returns a
-    new boundary list (inputs are not mutated) and the adjustments
-    that were applied. All proposals are computed from the original
-    boundary snapshot before any of them is applied, matching the
-    backtest's evaluation.
+    template's detections on the episode's original audio.
+    ``transcript_segments`` are (start, end, label) tuples for the
+    post; ``ina_speech`` are (start, end) INA speech spans. Both feed
+    the START role's optional early-cut check and may be None (the
+    early cut then never applies). Returns a new boundary list
+    (inputs are not mutated) and the adjustments that were applied.
+    All proposals are computed from the original boundary snapshot
+    before any of them is applied, matching the backtest's
+    evaluation.
     """
     result = [dict(b) for b in boundaries]
     adjustments: list[StingAdjustment] = []
@@ -298,7 +374,11 @@ def apply_sting_anchors(
         return result, adjustments
 
     for group in _group_break_indices(boundaries):
-        adjustments.extend(_propose_for_break(config, usable, boundaries, group))
+        adjustments.extend(
+            _propose_for_break(
+                config, usable, boundaries, group, transcript_segments, ina_speech
+            )
+        )
     _record_adjustments(result, adjustments)
     return result, adjustments
 
@@ -441,6 +521,7 @@ def _parse_start_rule(raw: dict[str, Any]) -> StartAnchorRule:
         require_positive_break_start=bool(
             raw.get("require_positive_break_start", False)
         ),
+        early_offset=(float(raw["early_offset"]) if "early_offset" in raw else None),
     )
 
 
